@@ -31,6 +31,7 @@ from healthcheck.web.context_time import (
     source_parts,
     zone_choices,
 )
+from healthcheck.web.owner_presentation import owner_date_range, owner_plural, owner_short_date
 from healthcheck.web.pages import templates
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 
@@ -63,9 +64,49 @@ ERRORS = {
 }
 
 
+def context_heading(view: ContextRevisionView) -> dict[str, str]:
+    """Compact labels from explicit local dates; never infer an event instant."""
+    temporal = view.temporal
+    start, end = temporal.start_local_date, temporal.end_local_date
+    months = ("Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+              "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь")
+    weekdays = ("пн", "вт", "ср", "чт", "пт", "сб", "вс")
+    label = owner_short_date(start)
+    detail = weekdays[start.weekday()]
+    if end:
+        label = (f"{start.day}–{owner_short_date(end)}"
+                 if (start.year, start.month) == (end.year, end.month)
+                 else owner_date_range(start, end))
+        days = (end - start).days + 1
+        detail += (f"–{weekdays[end.weekday()]} · {days} "
+                   + owner_plural(days, "день", "дня", "дней"))
+    if temporal.start_source_timestamp:
+        # source_parts retains the explicit wall clock, including legacy offsets.
+        detail += " · " + source_parts(temporal.start_source_timestamp)[1][:5]
+        if temporal.end_source_timestamp:
+            detail += "–" + source_parts(temporal.end_source_timestamp)[1][:5]
+        if temporal.start_timezone and temporal.start_timezone != "Europe/Moscow":
+            detail += " · " + temporal.start_timezone
+    return {"date": label, "detail": detail, "month": f"{months[start.month - 1]} {start.year}"}
+
+
+def context_presets(end: str | None) -> list[dict[str, str]]:
+    """Inclusive display links anchored to the currently displayed end date."""
+    try:
+        last = date.fromisoformat(end or "")
+    except ValueError:
+        return []
+    presets = []
+    for days, label in ((30, "30 дней"), (90, "90 дней"), (365, "Год")):
+        first = last - timedelta(days=min(days - 1, last.toordinal() - 1))
+        presets.append({"label": label, "start": first.isoformat(), "end": last.isoformat()})
+    return presets
+
+
 def _render(request: Request, *, status: int = 200, **context):
     form = context.get("form") or {}
     context.update(zones=zone_choices(), folds=fold_choices(form), zone_keys=dict(zone_choices()))
+    context.update(context_heading=context_heading, presets=context_presets(context.get("to_date")))
     response = templates.TemplateResponse(
         request, "context.html", {"page": "context", **context}, status_code=status
     )

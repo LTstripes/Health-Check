@@ -96,15 +96,20 @@ def test_native_units_display_only(value, duration, distance):
     assert owner_distance(value) == distance
 
 
-@pytest.mark.parametrize("temporal", [
-    parse_date_only("2024-02-29"),
-    parse_timestamp("2026-01-02T00:15+14:00", timezone_name="Pacific/Kiritimati"),
-    parse_timestamp("2026-01-02T19:30:00.000000+03:00", timezone_name="Europe/Moscow"),
-    parse_timestamp("2026-01-02T19:30:10.123400Z"),
-    parse_interval("2026-03-08T01:30-05:00", "2026-03-08T03:30-04:00"),
-    parse_interval("2026-01-02", "2026-01-04"),
+@pytest.mark.parametrize("temporal,day_label,when_label", [
+    (parse_date_only("2024-02-29"), "29 фев", "чт"),
+    (parse_timestamp("2026-01-02T00:15+14:00", timezone_name="Pacific/Kiritimati"),
+     "2 янв", "пт · 00:15 · Pacific/Kiritimati"),
+    (parse_timestamp("2026-01-02T19:30:00.000000+03:00", timezone_name="Europe/Moscow"),
+     "2 янв", "пт · 19:30"),
+    (parse_timestamp("2026-01-02T19:30:10.123400Z"), "2 янв", "пт · 19:30"),
+    (parse_interval("2026-03-08T01:30-05:00", "2026-03-08T03:30-04:00"),
+     "8–8 мар", "вс–вс · 1 день · 01:30–03:30"),
+    (parse_interval("2026-01-02", "2026-01-04"), "2–4 янв", "пт–вс · 3 дня"),
 ])
-def test_comments_list_detail_history_render_without_changing_evidence(ui, temporal):
+def test_comments_list_detail_history_render_without_changing_evidence(
+    ui, temporal, day_label, when_label,
+):
     client, engine, _ = ui
     with session_scope(engine) as session:
         first = ContextService(session).add(text="Synthetic original", temporal=temporal)
@@ -116,21 +121,21 @@ def test_comments_list_detail_history_render_without_changing_evidence(ui, tempo
     ]:
         response = client.get(path)
         assert response.status_code == 200
-        headings = re.findall(r"<h3>Событие: (.*?)</h3>", response.text)
+        headings = re.findall(
+            r'<div class="context-note-date"><h3>(.*?)</h3><p class="muted">(.*?)</p>',
+            response.text,
+        )
         assert headings
-        assert all("T19:" not in h and "2026-01-02" not in h for h in headings)
-        expected = owner_date(temporal.start_source_timestamp or temporal.start_local_date)
-        assert all(expected in h for h in headings)
+        assert all(day == day_label and when == when_label for day, when in headings)
         if temporal.end_local_date:
-            expected_end = owner_date(temporal.end_source_timestamp or temporal.end_local_date)
-            assert all(expected_end in h for h in headings)
+            assert str(temporal.end_source_timestamp or temporal.end_local_date) in response.text
         assert str(temporal.start_source_timestamp or temporal.start_local_date) in response.text
         assert "Записано автоматически (не время события)" in response.text
         assert "UTC" in response.text
         if temporal.start_timezone:
             assert temporal.start_timezone in response.text
         if temporal.start_precision == "date":
-            assert all(", 00:00" not in h and "UTC" not in h for h in headings)
+            assert all("00:00" not in when and "UTC" not in when for _, when in headings)
     with session_scope(engine) as session:
         assert ContextService(session).list()[0].temporal == temporal
         history = ContextService(session).list(history=True)

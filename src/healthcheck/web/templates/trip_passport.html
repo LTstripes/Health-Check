@@ -11,12 +11,26 @@
   'future': 'Дата позже даты просмотра'
 } %}
 {% set sleep_names = {'garmin': 'Garmin', 'google': 'Google'} %}
+{% macro sleep_cell(night) %}
+  {% if night and night.state == 'value' and night.value is not none %}
+    {{ passport_duration(night.value) }}{% if night.partial %}<span class="status-chip partial">частично</span>{% endif %}
+  {% elif night and night.state in ['conflict', 'ambiguous'] %}
+    {% set labels = {'role_uncertain': 'Роль сна не определена', 'ambiguous_garmin_main': 'Несколько записей', 'ambiguous_google_main': 'Несколько записей'} %}
+    <span class="status-chip ambiguous" tabindex="0" title="Сохранённые данные сна этого источника неоднозначны; длительность не выбрана. Это не сравнение Garmin и Google.">{{ labels.get(night.reason, 'расходятся') }}</span>
+  {% elif night and night.state == 'unavailable' %}<span class="muted">недоступно</span>
+  {% else %}<span class="muted">нет данных</span>{% endif %}
+{% endmacro %}
+{% macro recovery_cell(row, domain, provider=none) %}
+  {% for item in row.recovery if item.domain == domain and (provider is none or item.provider == provider) %}
+  <span class="passport-recovery">{{ item.value|owner_number(2) }}{% if provider is none %}<small class="muted">{{ sleep_names.get(item.provider, item.provider) }}{% if item.provider == 'garmin' %} · среднее за неделю{% endif %}</small>{% endif %}</span>
+  {% else %}<span class="muted">—</span>{% endfor %}
+{% endmacro %}
 {% block content %}
 <div class="passport-page">
-  <p class="passport-intro">Короткая история поездки или события по уже сохранённым данным: шаги, сон, тренировки, восстановление и твои комментарии. Ничего не догружается и не публикуется.</p>
+  {% if not passport %}<p class="passport-intro">Поездка или событие по сохранённым данным и твоим комментариям.</p>{% endif %}
 
-  <section class="card passport-form" aria-labelledby="passport-form-heading">
-    <h2 id="passport-form-heading">Период</h2>
+  <details class="card passport-form"{% if not passport or error %} open{% endif %}>
+    <summary>{% if passport %}<strong>{{ passport.title }}</strong><span class="muted"> · {{ passport.period.start_date|owner_date_range(passport.period.end_date, true) }}</span> · Изменить период или событие{% else %}Период или событие{% endif %}</summary>
     <form method="get" action="/passport" class="passport-fields">
       {% if events %}
       <label class="passport-wide">Комментарий-событие
@@ -45,7 +59,7 @@
     </form>
     <p class="muted passport-hint">Если выбран комментарий, даты берутся из него, а название — из первой строки текста; их можно изменить. Не больше {{ max_days }} дней подряд.</p>
     {% if events_truncated|default(false) %}<p class="muted">В списке только 50 недавних комментариев. Другой можно открыть на странице «Комментарии» и перейти к паспорту оттуда.</p>{% endif %}
-  </section>
+  </details>
 
   {% if error %}<p class="card passport-error" role="alert">{{ error }}</p>{% endif %}
 
@@ -60,7 +74,9 @@
       <h2 id="passport-title">{{ p.title }}</h2>
       <p class="passport-period">{% if p.place %}{{ p.place }} · {% endif %}{{ p.period.start_date|owner_date }} — {{ p.period.end_date|owner_date }} <span class="muted">· {{ p.period.day_count }} {{ p.period.day_count|owner_plural("день", "дня", "дней") }}</span></p>
       {% if p.coverage.future_dates %}<p class="muted">Позже даты просмотра: {{ p.coverage.future_dates|length }} из {{ p.period.day_count }} {{ p.period.day_count|owner_plural("дня", "дней", "дней") }}. Доступные записи сохраняют локальные даты источников.</p>{% endif %}
-      {% if segments|length != 1 or zone_changes or passport_offset(segments[0].zones[0]) %}
+      {% if not segments %}
+      {% call owner_ui.info_details('О поясах') %}<p>Пояса по сохранённым записям: в сохранённых данных не указаны.</p>{% endcall %}
+      {% elif segments|length != 1 or zone_changes or passport_offset(segments[0].zones[0]) %}
       <p class="passport-zones">
         <span class="muted">Пояса по сохранённым записям:</span>
         {% if segments %}
@@ -75,24 +91,26 @@
       <div class="card passport-tile">
         <h3>Шаги</h3>
         <p class="passport-figure{% if p.steps.counted_day_count|owner_low_coverage(p.period.day_count) %} owner-value-low{% endif %}">{{ passport_mean(p.steps.mean_exact) }}</p>
-        <p>{{ owner_ui.value_meta("Garmin", count=p.steps.counted_day_count, days=p.period.day_count) }} · в среднем за завершённый день</p>
+        <p>{{ owner_ui.value_meta("Garmin", p.period.start_date|owner_date_range(p.period.end_date, true), count=p.steps.counted_day_count, days=p.period.day_count) }} · в среднем за завершённый день</p>
         {% if p.steps.total is not none %}<p class="muted">Всего за эти дни: {{ passport_steps(p.steps.total) }}</p>{% endif %}
       </div>
       <div class="card passport-tile">
         <h3>Сон</h3>
         {% for name, provider in p.sleep.providers.items() %}
-        <p><strong{% if p.coverage.sleep_nights_with_value[name]|owner_low_coverage(p.period.day_count) %} class="owner-value-low"{% endif %}>{{ p.coverage.sleep_nights_with_value[name] }} {{ p.coverage.sleep_nights_with_value[name]|owner_plural("ночь", "ночи", "ночей") }} с данными</strong> {{ owner_ui.value_meta(sleep_names.get(name, name), count=p.coverage.sleep_nights_with_value[name], days=p.period.day_count, noun="nights") }}</p>
+        <p><strong{% if p.coverage.sleep_nights_with_value[name]|owner_low_coverage(p.period.day_count) %} class="owner-value-low"{% endif %}>{{ p.coverage.sleep_nights_with_value[name] }} {{ p.coverage.sleep_nights_with_value[name]|owner_plural("ночь", "ночи", "ночей") }} с данными</strong> {{ owner_ui.value_meta(sleep_names.get(name, name), p.period.start_date|owner_date_range(p.period.end_date, true), count=p.coverage.sleep_nights_with_value[name], days=p.period.day_count, noun="nights") }}</p>
         {% else %}<p class="muted">Источник сна не выбран.</p>{% endfor %}
       </div>
       <div class="card passport-tile">
         <h3>Тренировки</h3>
         <p class="passport-figure">{{ p.workouts.session_count if p.workouts.session_count is not none else '—' }}</p>
+        {% if p.workouts.session_count is not none %}<p>{{ p.workouts.session_count|owner_plural('тренировка', 'тренировки', 'тренировок') }}</p>{% endif %}
         <p>{{ owner_ui.value_meta("Garmin", p.period.start_date|owner_date ~ " — " ~ p.period.end_date|owner_date) }}</p>
         <p class="muted">{% if p.workouts.state != 'complete' %}список может быть неполным{% else %}из сохранённого журнала{% endif %}</p>
       </div>
       <div class="card passport-tile">
         <h3>Комментарии</h3>
         <p class="passport-figure">{{ p.context.rows|length }}</p>
+        <p>{{ p.context.rows|length|owner_plural('комментарий', 'комментария', 'комментариев') }}</p>
         <p>{{ owner_ui.value_meta("Health-Check", p.period.start_date|owner_date ~ " — " ~ p.period.end_date|owner_date) }}</p>
         <p class="muted">{% if p.context.state == 'truncated' %}показаны не все: предел {{ p.context.row_limit }}{% else %}в этом периоде{% endif %}</p>
       </div>
@@ -104,28 +122,35 @@
         <table class="passport-table">
           <thead><tr>
             <th scope="col">Дата</th>
-            <th scope="col">Шаги</th>
-            {% for name in p.sleep.providers %}<th scope="col">Сон, {{ sleep_names.get(name, name) }}</th>{% endfor %}
+            <th scope="col" class="passport-numeric">Шаги</th>
+            {% for name in sleep_names %}<th scope="col" class="passport-numeric">Сон {{ sleep_names[name] }}</th>{% endfor %}
             <th scope="col">Тренировки</th>
-            <th scope="col">Восстановление</th>
+            <th scope="col" class="passport-numeric">Пульс покоя Garmin, уд/мин</th>
+            <th scope="col" class="passport-numeric">Пульс покоя Google, уд/мин</th>
+            <th scope="col" class="passport-numeric">HRV, мс</th>
+            <th scope="col" class="passport-numeric">Body Battery, макс.</th>
             <th scope="col">Пояс</th>
           </tr></thead>
           <tbody>
           {% for row in rows %}
             <tr class="passport-row-{{ row.steps.state }}">
               <th scope="row">{{ row.date|owner_short_date }}{% if row.notes %} <span class="passport-note-mark" title="Комментарии в этот день">✎</span>{% endif %}</th>
-              <td class="passport-steps passport-steps-{{ row.steps.state }}" title="{{ steps_labels[row.steps.state] }}">
+              <td class="passport-numeric passport-steps passport-steps-{{ row.steps.state }}" title="{{ steps_labels[row.steps.state] }}">
                 {% if row.steps.state in ['completed', 'zero'] %}{{ passport_steps(row.steps.value) }}
                 {% elif row.steps.state == 'incomplete' %}<span class="muted">{{ passport_steps(row.steps.value) }}</span> <span class="status-chip partial">не завершён</span>
                 {% elif row.steps.state == 'conflict' %}<span class="status-chip ambiguous">расходятся</span>
                 {% elif row.steps.state == 'future' %}<span class="muted">впереди</span>
                 {% else %}<span class="muted">нет данных</span>{% endif %}
               </td>
-              {% for name, night in row.sleep.items() %}
-              <td>{% if night and night.state == 'value' and night.value is not none %}{{ passport_duration(night.value) }}{% elif night and night.state == 'conflict' %}<span class="status-chip ambiguous">расходятся</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+              {% for name in sleep_names %}
+              {% set night = row.sleep.get(name) %}
+              <td class="passport-numeric">{{ sleep_cell(night) }}</td>
               {% endfor %}
               <td>{% for item in row.workouts %}<span class="passport-workout">{{ passport_activity(item.activity_type) }} <span class="muted">{{ passport_workout_time(item) }}</span></span>{% else %}<span class="muted">—</span>{% endfor %}</td>
-              <td>{% for item in row.recovery %}<span class="passport-recovery">{{ item.label }}: {{ item.value|owner_number(2) }}{% if item.unit %} {{ item.unit }}{% endif %}</span>{% else %}<span class="muted">—</span>{% endfor %}</td>
+              <td class="passport-numeric">{{ recovery_cell(row, 'rhr', 'garmin') }}</td>
+              <td class="passport-numeric">{{ recovery_cell(row, 'rhr', 'google') }}</td>
+              <td class="passport-numeric">{{ recovery_cell(row, 'hrv') }}</td>
+              <td class="passport-numeric">{{ recovery_cell(row, 'body_battery', 'garmin') }}</td>
               <td>{% for zone in row.zones %}<span class="passport-zone-cell">{{ passport_offset(zone, zone_changes) }}</span>{% else %}<span class="muted">—</span>{% endfor %}</td>
             </tr>
           {% endfor %}

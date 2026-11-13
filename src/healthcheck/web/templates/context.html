@@ -1,21 +1,31 @@
-{% extends "base.html" %}
-{% block title %}Комментарии / Контекст — Health-Check{% endblock %}
+﻿{% extends "base.html" %}
+{% block title %}Комментарии — Health-Check{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/context.css">{% endblock %}
-{% macro note(view) %}
+{% macro note(view, actions=false) %}
+{% set heading = context_heading(view) %}
 <article class="context-note" data-revision="{{ view.revision_id }}">
-  <h3>Событие: {{ (view.temporal.start_source_timestamp or view.temporal.start_local_date)|owner_date }}{% if view.temporal.end_local_date %} — {{ (view.temporal.end_source_timestamp or view.temporal.end_local_date)|owner_date }}{% endif %}</h3>
-  <p class="context-text">{{ view.original_text }}</p>
-  <p class="muted">{% if view.temporal.start_precision == 'date' %}Только дата, время не задано{% else %}Точность: {{ {'minute': 'минута', 'second': 'секунда', 'microsecond': 'доля секунды'}[view.temporal.start_precision] }}{% if view.temporal.start_timezone and view.temporal.start_timezone != "Europe/Moscow" %} · {{ view.temporal.start_timezone }}{% endif %}{% endif %}</p>
-  <p class="muted">Записано автоматически: {{ view.created_at|owner_date }} · Версия {{ view.revision_number }} · {{ 'Актуальная' if view.is_current else 'Предыдущая' }} · Источник: {{ view.capture_source }}</p>
-  <details class="owner-details context-time-details">
-    <summary>Точные даты и время</summary>
-    <dl>
-      <dt>Событие: начало</dt><dd>{{ view.temporal.start_source_timestamp or view.temporal.start_local_date }} · {{ view.temporal.start_precision }}{% if view.temporal.start_timezone %} · {{ view.temporal.start_timezone }}{% endif %}</dd>
-      {% if view.temporal.end_local_date %}<dt>Событие: окончание</dt><dd>{{ view.temporal.end_source_timestamp or view.temporal.end_local_date }} · {{ view.temporal.end_precision }}{% if view.temporal.end_timezone %} · {{ view.temporal.end_timezone }}{% endif %}</dd>{% endif %}
-      <dt>Записано автоматически (не время события)</dt><dd>{{ view.created_at.isoformat() }}</dd>
-    </dl>
-  </details>
-  {% if view.tags %}<p>Метки: {% for tag in view.tags %}{{ tag.name }} ({{ tag.status }}, {{ tag.provenance_source }}){% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+  <div class="context-note-date"><h3>{{ heading.date }}</h3><p class="muted">{{ heading.detail }}</p></div>
+  <div class="context-note-body">
+    <p class="context-text">{{ view.original_text }}</p>
+    {% if view.revision_number > 1 %}<p class="context-revised muted">исправлено · версия {{ view.revision_number }}</p>{% endif %}
+  </div>
+  <div class="context-note-actions">
+    {% if actions %}<a href="/context/{{ view.event_id }}">Изменить</a>{% endif %}
+    <a href="/passport?event_id={{ view.event_id }}">Паспорт</a>
+    <details class="context-time-details">
+      <summary aria-label="Технические детали записи за {{ heading.date }}" title="Технические детали записи">ⓘ</summary>
+      <div class="context-note-details">
+        <p class="muted">{% if view.temporal.start_precision == 'date' %}Только дата, время не задано{% else %}Точность: {{ {'minute': 'минута', 'second': 'секунда', 'microsecond': 'доля секунды'}[view.temporal.start_precision] }}{% endif %}</p>
+        <p>Версия {{ view.revision_number }} · {{ 'Актуальная' if view.is_current else 'Предыдущая' }} · Источник: {{ view.capture_source }}</p>
+        <dl>
+          <dt>Событие: начало</dt><dd>{{ view.temporal.start_source_timestamp or view.temporal.start_local_date }} · {{ view.temporal.start_precision }}{% if view.temporal.start_timezone %} · {{ view.temporal.start_timezone }}{% endif %}</dd>
+          {% if view.temporal.end_local_date %}<dt>Событие: окончание</dt><dd>{{ view.temporal.end_source_timestamp or view.temporal.end_local_date }} · {{ view.temporal.end_precision }}{% if view.temporal.end_timezone %} · {{ view.temporal.end_timezone }}{% endif %}</dd>{% endif %}
+          <dt>Записано автоматически (не время события)</dt><dd>{{ view.created_at.isoformat() }}</dd>
+        </dl>
+        {% if view.tags %}<p>Метки: {% for tag in view.tags %}{{ tag.name }} ({{ tag.status }}, {{ tag.provenance_source }}){% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+      </div>
+    </details>
+  </div>
 </article>
 {% endmacro %}
 {% macro occurrence(field, label) %}
@@ -30,75 +40,85 @@
 {% endmacro %}
 {% block content %}
 <div class="context-page">
-  <p>Исходные комментарии с датой события. Время необязательно. Исправления сохраняют предыдущие версии. <a href="/passport">Паспорт поездки или события</a></p>
   {% if error %}<p class="context-error" role="alert">{{ error }}</p>{% endif %}
   {% if saved %}<p class="context-success" role="status">Сохранено. Ниже запись, прочитанная из хранилища.</p>{% endif %}
   {% if saved_older %}<p role="status">Операция сохранена ранее. Ниже более новая актуальная версия; предыдущая доступна в истории.</p>{% endif %}
   {% if current %}
+    <p class="context-back"><a href="/context">← К списку комментариев</a></p>
     {{ note(current) }}
-    <p><a href="/context/{{ current.event_id }}?history=1">История исправлений</a> · <a href="/context">К списку комментариев</a></p>
   {% elif editing_event_id %}
     <p><a href="/context/{{ editing_event_id }}">Открыть актуальную запись</a> · <a href="/context">К списку</a></p>
   {% endif %}
   {% if form %}
-  <section class="card">
+  <section class="card context-compose-card">
     <h2>{{ 'Исправить комментарий' if current or editing_event_id else 'Добавить комментарий' }}</h2>
     <form id="context-form" method="post" action="/context{% if current %}/{{ current.event_id }}{% elif editing_event_id %}/{{ editing_event_id }}{% endif %}">
       <input type="hidden" name="operation_id" value="{{ form.operation_id }}">
       {% if form.expected_revision_id %}<input type="hidden" name="expected_revision_id" value="{{ form.expected_revision_id }}">{% endif %}
-      <label for="original-text">Комментарий (обязательно, до 4000 символов)</label>
-      <textarea id="original-text" name="original_text" rows="4" required aria-describedby="context-text-help">
+      <div class="context-compose">
+        <div class="context-compose-text">
+          <label for="original-text">Комментарий (обязательно, до 4000 символов)</label>
+          <textarea id="original-text" name="original_text" rows="1" required{% if not current and not editing_event_id %} aria-describedby="context-text-help"{% endif %}>
 {{ form.original_text|default('') }}</textarea>
-      <p class="muted" id="context-text-help">Текст сохраняется без перефразирования. Метки и выводы автоматически не добавляются.</p>
-      <div class="context-fields">
+        </div>
         <label>Дата события<input name="event_date" type="date" required value="{{ form.event_date }}"></label>
-        <label>Время (необязательно)<input name="event_time" type="text" inputmode="text" placeholder="19:30 или 19:30:00" value="{{ form.event_time|default('') }}" maxlength="20"></label>
+        <button type="submit">{{ 'Сохранить исправление' if current or editing_event_id else 'Добавить' }}</button>
       </div>
-      <div id="context-zone"{% if not form.event_time %} hidden{% endif %}>
-        <label>Город / часовой пояс
-          <select name="timezone_name"{% if not form.event_time %} disabled{% endif %} aria-describedby="context-zone-help">
-            <option value="">{{ 'Сохранить исходное время без IANA' if form.legacy_time else 'Выбери город / часовой пояс' }}</option>
-            {% if form.timezone_name and form.timezone_name not in zone_keys %}<option value="{{ form.timezone_name }}" selected>Исходный пояс — {{ form.timezone_name }}</option>{% endif %}
-            {% for key, label in zones %}<option value="{{ key }}"{% if form.timezone_name == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
-          </select>
-        </label>
-        <p class="muted" id="context-zone-help">Смещение определяется по дате и времени события. Можно выбрать город с клавиатуры; IANA уточняет его часовой пояс.</p>
-        {% if form.legacy_time %}<p class="muted">Исходное время: {{ form.legacy_time|owner_date }}. Город не указан. При исправлении только текста время сохраняется точно; для изменения времени выбери пояс.</p>{% endif %}
-        {{ occurrence('occurrence', 'Начало') }}
-      </div>
-      <p class="muted">Дата без времени остаётся датой — без часового пояса и полуночи.</p>
-      <details{% if form.end_date %} open{% endif %}>
-        <summary>Интервал (необязательно)</summary>
+      <details class="context-extra" id="context-extra"{% if error or form.event_time or form.timezone_name or form.end_date or form.end_time or form.occurrence or form.end_occurrence %} open{% endif %}>
+        <summary>Указать время, город или интервал</summary>
+        <div class="context-fields">
+          <label>Время (необязательно)<input name="event_time" type="text" inputmode="text" placeholder="19:30 или 19:30:00" value="{{ form.event_time|default('') }}" maxlength="20"></label>
+          <button type="button" id="context-now">Сейчас</button>
+        </div>
+        <div id="context-zone"{% if not form.event_time %} hidden{% endif %}>
+          <label>Город / часовой пояс
+            <select name="timezone_name"{% if not form.event_time %} disabled{% endif %} aria-describedby="context-zone-help">
+              <option value="">{{ 'Сохранить исходное время без IANA' if form.legacy_time else 'Выбери город / часовой пояс' }}</option>
+              {% if form.timezone_name and form.timezone_name not in zone_keys %}<option value="{{ form.timezone_name }}" selected>Исходный пояс — {{ form.timezone_name }}</option>{% endif %}
+              {% for key, label in zones %}<option value="{{ key }}"{% if form.timezone_name == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+          </label>
+          <p class="muted" id="context-zone-help">Город определяет пояс на дату события.</p>
+          {% if form.legacy_time %}<p class="muted">Исходное время: {{ form.legacy_time|owner_date }}. Город не указан. При исправлении только текста время сохраняется точно; для изменения времени выбери пояс.</p>{% endif %}
+          {{ occurrence('occurrence', 'Начало') }}
+        </div>
         <div class="context-fields">
           <label>Дата окончания<input name="end_date" type="date" value="{{ form.end_date|default('') }}"></label>
           <label>Время окончания<input name="end_time" type="text" placeholder="21:00" value="{{ form.end_time|default('') }}" maxlength="20"></label>
         </div>
         {{ occurrence('end_occurrence', 'Окончание') }}
+        {% if not current and not editing_event_id %}<p class="muted" id="context-text-help">Текст сохраняется без перефразирования. Метки и выводы автоматически не добавляются. Дата без времени остаётся датой — без часового пояса и полуночи.</p>{% endif %}
       </details>
-      <div class="context-actions">
-        <button type="button" id="context-now">Сейчас</button>
-        <button type="submit">{{ 'Сохранить исправление' if current or editing_event_id else 'Добавить комментарий' }}</button>
-      </div>
       <p id="context-pending" class="muted" role="status"></p>
     </form>
   </section>
   {% endif %}
   {% if from_date is defined %}
-  <section class="card">
+  <section class="card context-feed">
     <h2>Комментарии за период</h2>
-    <form method="get" action="/context" class="context-fields">
+    <form method="get" action="/context" class="context-fields context-filter">
       <label>С даты<input type="date" name="from_date" required value="{{ from_date }}"></label>
       <label>По дату<input type="date" name="to_date" required value="{{ to_date }}"></label>
       <button type="submit">Показать</button>
     </form>
+    {% if presets %}<nav class="context-presets" aria-label="Период комментариев">{% for preset in presets %}<a href="/context?from_date={{ preset.start }}&amp;to_date={{ preset.end }}"{% if from_date == preset.start and to_date == preset.end %} aria-current="date"{% endif %}>{{ preset.label }}</a>{% endfor %}</nav>{% endif %}
     {% if items is defined %}
+      {% set group = namespace(month='') %}
       {% for view in items %}
-        {{ note(view) }}<p><a href="/context/{{ view.event_id }}">Открыть / исправить</a> · <a href="/passport?event_id={{ view.event_id }}">Паспорт периода</a></p>
+        {% set month = context_heading(view).month %}
+        {% if month != group.month %}<h3 class="context-month">{{ month }}</h3>{% set group.month = month %}{% endif %}
+        {{ note(view, actions=true) }}
       {% else %}<p>За выбранные даты комментариев нет. Это не означает отсутствие событий.</p>{% endfor %}
     {% endif %}
   </section>
   {% endif %}
-  {% if history %}<section class="card"><h2>История исправлений</h2>{% for view in history %}{{ note(view) }}{% endfor %}</section>{% endif %}
+  {% if current %}
+  <details class="card owner-details context-history" id="context-history"{% if history %} open{% endif %}>
+    <summary>История исправлений</summary>
+    {% if history %}{% for view in history %}{{ note(view) }}{% endfor %}
+    {% else %}<p><a href="/context/{{ current.event_id }}?history=1#context-history">Показать историю исправлений</a></p>{% endif %}
+  </details>
+  {% endif %}
   {% if has_more %}<p>Показаны первые 50 записей. Есть ещё{% if current %}; история ограничена 50 последними версиями{% else %}; сузь период{% endif %}.</p>{% endif %}
 </div>
 {% endblock %}

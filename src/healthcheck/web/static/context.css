@@ -1,15 +1,42 @@
-.context-page { max-width: 1000px; }
-.context-page textarea { width: 100%; resize: vertical; font: inherit; padding: 12px; background: var(--card); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 4px; }
-.context-page label { display: grid; gap: 4px; margin: 8px 0; min-width: 0; }
-.context-page input, .context-page select { width: 100%; min-width: 0; }
-.context-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: end; }
-#context-form .context-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+﻿.context-page { min-width: 0; }
+.context-page .card { margin-bottom: 16px; padding: 16px 20px; }
+.context-page h2 { margin: 0 0 8px; font-size: 1rem; }
+.context-page textarea { display: block; width: 100%; min-height: 44px; resize: vertical; font: inherit; padding: 10px 12px; background: var(--card); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 4px; }
+.context-page label { display: grid; gap: 4px; margin: 0; min-width: 0; font-size: 0.875rem; }
+.context-page input, .context-page select { width: 100%; min-width: 0; min-height: 44px; }
+.context-compose { display: grid; grid-template-columns: minmax(0, 1fr) 170px auto; gap: 12px; align-items: end; }
+.context-compose-text { min-width: 0; }
+.context-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: end; }
+.context-filter { grid-template-columns: 170px 170px auto; justify-content: start; }
+.context-extra > .context-fields, #context-zone { margin: 8px 0; }
 .context-page [hidden] { display: none; }
-.context-actions { display: flex; gap: 16px; margin-top: 16px; }
-.context-note { border-bottom: 1px solid var(--line); padding: 12px 0; overflow-wrap: anywhere; }
-.context-note h3 { font-size: 1rem; }
+.context-presets { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.context-presets a, .context-note-actions > a, .context-back a { display: inline-flex; align-items: center; min-height: 44px; }
+.context-presets [aria-current] { font-weight: 600; color: var(--ink); }
+.context-note { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; gap: 8px 16px; border-top: 1px solid var(--line); padding: 8px 0; overflow-wrap: anywhere; }
+.context-note h3, .context-note p { margin: 0; }
+.context-note h3 { font-size: 0.875rem; }
+.context-note-date p, .context-revised { font-size: 0.8125rem; }
 .context-text { white-space: pre-wrap; }
+.context-page .context-month { margin: 8px 0 4px; font-size: 0.875rem; color: var(--muted); }
+.context-note-actions { display: flex; flex-wrap: wrap; align-items: start; gap: 8px; font-size: 0.875rem; }
+.context-time-details { position: relative; }
+.context-time-details > summary { display: grid; place-items: center; min-width: 44px; list-style: none; cursor: pointer; }
+.context-time-details > summary::-webkit-details-marker { display: none; }
+.context-note-details { position: absolute; right: 0; z-index: 2; width: min(480px, 65vw); padding: 16px; background: var(--card); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: 0 8px 24px var(--bg); }
+.context-note-details dd { margin: 0 0 8px; }
 .context-error { background: var(--error-bg); color: var(--error-ink); padding: 16px; }
 .context-success { background: var(--accent-soft); color: var(--accent); padding: 16px; }
-.context-page :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.context-page :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .context-page summary, .context-page button { min-height: 44px; }
+.context-extra > summary { align-content: center; cursor: pointer; font-size: 0.875rem; }
+#context-pending:empty { display: none; }
+@media (max-width: 1100px) {
+  .context-note { grid-template-columns: 120px minmax(0, 1fr) auto; gap: 8px; }
+}
+@media (max-width: 700px) {
+  .context-compose, .context-filter { grid-template-columns: minmax(0, 1fr); }
+  .context-note { grid-template-columns: 110px minmax(0, 1fr); }
+  .context-note-actions { grid-column: 2; }
+  .context-note-details { width: min(400px, 75vw); }
+}
