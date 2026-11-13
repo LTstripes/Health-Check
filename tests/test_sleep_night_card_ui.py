@@ -73,6 +73,45 @@ def _text(html):
     return re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", " ", html))).strip()
 
 
+def test_source_cards_reuse_t6_for_each_exact_session_without_fetch_or_shared_ids(tmp_path):
+    from copy import deepcopy
+
+    rows = [_interval("2026-10-25T20:00:00Z", "2026-10-25T21:00:00Z", "LIGHT")]
+    first = _interval_session(rows)
+    first["wake_date"] = POINT["wake_date"]
+    second = deepcopy(first)
+    second["record_id"] = "other-record"
+    second["metrics"]["sleep_duration_asleep_seconds"] = _cell(0)
+    empty = deepcopy(first)
+    for cell in empty["metrics"].values():
+        cell.update(eligible=False, state="missing", value=None)
+    packet = {"sources": [{"sessions": [first, second, empty]}]}
+    before = deepcopy(packet)
+    path = tmp_path / "source-cards.json"
+    path.write_text(json.dumps({"packet": packet, "hosts": [
+        {"sourceIndex": "0", "sessionIndex": str(index), "provider": "google",
+         "sourceLabel": 'Google · <script>"source"</script>'} for index in range(3)
+    ]}), encoding="utf-8")
+    result = subprocess.run(
+        ["node", str(REPO / "scripts/render_sleep_source_night.cjs"), str(path)],
+        check=True, capture_output=True, text=True, encoding="utf-8",
+    )
+    first_html, second_html, empty_html = json.loads(result.stdout)
+    assert 'aria-label="8 ч 35 мин"' in first_html
+    assert 'aria-label="0 мин"' in second_html
+    assert 'id="source-night-hatch-0"' in first_html
+    assert 'url(#source-night-hatch-0)' in first_html
+    assert 'id="source-night-hatch-1"' in second_html
+    assert 'class="night-hypno-hatch"' in first_html
+    assert 'source-night-stages-0' in first_html
+    assert 'source-night-stages-1' in second_html
+    assert 'data-night-tile="sleep_score"' not in first_html
+    assert '&lt;script&gt;&quot;source&quot;&lt;/script&gt;' in first_html
+    assert '<script>"source"</script>' not in first_html
+    assert empty_html == "server fallback"
+    assert packet == before
+
+
 def test_complete_garmin_night_is_compact_and_keeps_detail_collapsed(tmp_path):
     [card] = _render(tmp_path, [{"series": GARMIN, "point": POINT, "session": _session()}])
     head = card["head"]

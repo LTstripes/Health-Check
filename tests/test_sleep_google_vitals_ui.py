@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 
 from fastapi.testclient import TestClient
@@ -147,17 +148,17 @@ def test_sleep_google_vitals_windows_are_bounded_and_defaulted(tmp_path):
         assert week.status_code == 200
         primary, _technical = _split(week.text)
         assert "27 декабря 2098 → 2 января 2099" in primary
-        assert 'value="7" selected' in primary
+        assert re.search(r'aria-current="true" href="[^"]*vitals_window=7"', primary)
 
         quarter = client.get("/sleep?view=google&wake_date=2099-01-02&vitals_window=90")
         primary, _technical = _split(quarter.text)
         assert "5 октября 2098 → 2 января 2099" in primary
-        assert 'value="90" selected' in primary
+        assert re.search(r'aria-current="true" href="[^"]*vitals_window=90"', primary)
 
         out_of_set = client.get("/sleep?view=google&wake_date=2099-01-02&vitals_window=365")
         primary, _technical = _split(out_of_set.text)
         assert "4 декабря 2098 → 2 января 2099" in primary
-        assert 'value="30" selected' in primary
+        assert re.search(r'aria-current="true" href="[^"]*vitals_window=30"', primary)
 
         invalid = client.get("/sleep?view=google&wake_date=2099-01-02&vitals_window=nope")
         assert invalid.status_code == 200

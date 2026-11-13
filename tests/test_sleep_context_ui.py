@@ -276,6 +276,38 @@ def test_schedule_markers_hover_text_escaping_and_source_toggles(tmp_path):
     assert '<script>"untrusted"</script>' not in full["html"]
     assert 'aria-label="1 событие' in full["html"]
     assert 'первая ночь после окончания события' in full["html"]
+    assert '>⚑</span>' in full["html"]
+    assert '⚑ событие перед сном' in full["html"]
+    assert 'tabindex="0" role="img"' in full["html"]
+    from overview_html import parse_overview
+
+    schedule = parse_overview(full["html"])
+    for marker in schedule.find("span", classes=("sleep-schedule-event",)):
+        source = marker.attrs["data-schedule-bar"]
+        # The flag belongs at the start of its exact source's saved interval.
+        bar = next(bar for bar in schedule.find("span", classes=("sleep-schedule-bar",))
+                   if bar.attrs["data-schedule-bar"] == source)
+        marker_left = marker.attrs["style"].split("left:")[1].split(";")[0]
+        bar_left = bar.attrs["style"].split("left:")[1].split(";")[0]
+        assert marker_left == bar_left
+
+
+def test_event_columns_keep_whole_comparison_and_one_date_only_state():
+    from overview_html import parse_overview
+
+    timeline = _timeline(_event(), _event("2026-10-30", number=2))
+    html = templates.env.get_template("sleep_context.html").render(timeline=timeline)
+    table = parse_overview(html).one("table")
+    assert [cell.text for cell in table.one("thead").find("th")] == [
+        "Событие", "Следующая ночь", "Длительность", "Начало сна", "К обычному",
+    ]
+    for row in timeline["context_events"]["rows"][:1]:
+        for cell in row["sources"]:
+            assert cell["comparison"].replace("-", "−") in html
+            assert cell["duration"] in html
+    assert html.count("только дата, с ночью не связывается") == 1
+    assert "нет времени" not in table.text
+    assert "<style>" not in html
 
 
 def test_timeline_markers_focus_and_hover_use_production_renderer(tmp_path):
@@ -319,7 +351,7 @@ def test_production_current_revision_snapshot_and_period(tmp_path):
     assert "Synthetic old note" not in html
     assert "Corrected &lt;script&gt;&#34;event&#34;&lt;/script&gt;" in html
     assert html.index('id="sleep-schedule-title"') < html.index('id="sleep-context-title"')
-    assert "нет времени" in html
+    assert html.count("только дата, с ночью не связывается") == 1
     packet = _timeline_json(html)
     assert packet["context_events"]["state"] == "available"
     assert corrected.revision_id in html  # technical disclosure only

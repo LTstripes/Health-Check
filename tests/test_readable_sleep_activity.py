@@ -68,6 +68,8 @@ def test_endpoint_offsets_are_independent_across_dst_and_never_host_based():
         "24 октября 2026, 22:00 UTC+0200")
     assert source_sleep_value(end, session, "sleep_end_at") == (
         "25 октября 2026, 07:00 UTC+0100")
+    assert source_sleep_value(start, session, "sleep_start_at", compact=True) == "22:00 UTC+0200"
+    assert source_sleep_value(end, session, "sleep_end_at", compact=True) == "07:00 UTC+0100"
     end["evidence"] = {}
     assert source_sleep_value(end, session, "sleep_end_at") == "25 октября 2026, 06:00 UTC"
     end["evidence"] = original["metrics"]["sleep_end_at"]["evidence"]

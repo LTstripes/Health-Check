@@ -1,0 +1,38 @@
+{# Server fallback and mount for the same T6 renderer used by Night and dynamics.
+   Exact already-read session only; the client never chooses a winning session. #}
+{% macro display_source(label) -%}
+{{- label|replace('семейство устройств', 'устройства')|replace('семейство источников', 'источники Google')|replace(' · источник без атрибуции', '')|replace(' · источник данных', '') -}}
+{%- endmacro %}
+{% macro night_card(session, provider, label, day, source_index, session_index) %}
+<div class="sleep-timeline-detail source-night-card" data-source-night-card data-source-index="{{ source_index }}" data-session-index="{{ session_index }}" data-provider="{{ provider }}" data-source-label="{{ label }}">
+  <div class="night-card">
+  <header class="night-card-head"><h3 class="night-card-title">Ночь на {{ day|owner_date }}</h3>
+    <p class="night-card-source"><span class="swatch sleep-series-{{ provider }}" aria-hidden="true"></span>{{ label }}</p>
+  </header>
+  {% set available = namespace(any=false) %}
+  {% for cell in session.metrics.values() %}{% if cell.eligible %}{% set available.any = true %}{% endif %}{% endfor %}
+  {% if not available.any %}
+  <p class="muted" data-source-sleep-empty data-owner-state="unavailable">Нет пригодного значения {{ label }} за {{ day|owner_date }}. Это не ноль. <a href="/imports">Проверить источники</a></p>
+  {% else %}
+  {% set duration = session.metrics.sleep_duration_asleep_seconds %}
+  <div class="night-card-duration" data-source-sleep-metric="sleep_duration_asleep_seconds">
+    <p class="night-card-label">Длительность сна</p>
+    <p class="night-card-figure" data-owner-state="{{ 'present' if duration.eligible else 'unavailable' }}">{{ source_sleep_value(duration, session, 'sleep_duration_asleep_seconds') }}</p>
+  </div>
+  <p class="night-card-window">
+    {% for code in ('sleep_start_at', 'sleep_end_at') %}<span data-source-sleep-metric="{{ code }}" data-owner-state="{{ 'present' if session.metrics[code].eligible else 'unavailable' }}">{{ source_sleep_value(session.metrics[code], session, code, compact=true) }}</span>{% if not loop.last %}<span aria-hidden="true"> → </span>{% endif %}{% endfor %}
+  </p>
+  <div class="night-card-stages"><h4>Стадии сна</h4><dl class="night-stage-legend">
+    {% for code, name in source_sleep_details if code != 'sleep_time_in_bed_seconds' %}
+    <div data-source-sleep-metric="{{ code }}"><dt>{{ name }}</dt><dd>{{ source_sleep_value(session.metrics[code], session, code) }}</dd></div>
+    {% endfor %}
+  </dl></div>
+  <dl class="night-card-tiles">
+    {% for code, name in [('sleep_time_in_bed_seconds', 'Время в постели')] + ([('sleep_score', 'Оценка сна Garmin')] if provider == 'garmin' else []) %}
+    <div class="night-card-tile" data-source-sleep-metric="{{ code }}"><dt>{{ name }}</dt><dd data-owner-state="{{ 'present' if session.metrics[code].eligible else 'unavailable' }}">{{ source_sleep_value(session.metrics[code], session, code) }}</dd></div>
+    {% endfor %}
+  </dl>
+  {% endif %}
+  </div>
+</div>
+{% endmacro %}

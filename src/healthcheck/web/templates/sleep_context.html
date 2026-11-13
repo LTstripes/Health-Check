@@ -7,22 +7,30 @@
   {% if events.has_more %}<p>Список событий ограничен 199 записями, включая историю для сравнения. Пары могут быть неполными; сравнение недоступно.</p>{% endif %}
   {% if events.rows %}
   <div class="table-scroll" role="region" tabindex="0" aria-label="Событие и следующая ночь">
-    <table><thead><tr><th scope="col">Событие</th><th scope="col">Следующая ночь</th></tr></thead><tbody>
+    <table class="sleep-context-table"><thead><tr><th scope="col">Событие</th><th scope="col">Следующая ночь</th><th scope="col">Длительность</th><th scope="col">Начало сна</th><th scope="col">К обычному</th></tr></thead>
     {% for row in events.rows %}
-    <tr><th scope="row"><time>{{ row.time|owner_datetime_text }}</time><br><span class="sleep-context-text">{{ row.text }}</span></th>
-      <td>{% for cell in row.sources %}
-        <div data-sleep-context-source="{{ cell.series_id }}" class="sleep-context-result">
+    <tbody>
+    {% if row.time_missing or not row.sources %}
+    <tr><th scope="row"><time>{{ row.time|owner_datetime_text|replace(' UTC+0300', '') }}</time><br><span class="sleep-context-text">{{ row.text }}</span></th>
+      <td colspan="4" class="muted">{% if row.time_missing %}только дата, с ночью не связывается{% else %}Нет подходящей ночи: {{ events.empty_reason }}.{% endif %}</td></tr>
+    {% else %}
+    {% for cell in row.sources %}
+    <tr data-sleep-context-source="{{ cell.series_id }}">
+      <th scope="row"><time>{{ row.time|owner_datetime_text|replace(' UTC+0300', '') }}</time><br><span class="sleep-context-text">{{ row.text }}</span></th>
+      <td>{{ cell.label }}
           {% if cell.night %}
-          <span>{{ cell.night | owner_date }} · {{ cell.label }} · {{ cell.duration }}</span><br>
-          <span class="muted">{{ cell.start|owner_time }} → {{ cell.end|owner_time }}</span><br>
-          <span>{{ cell.comparison|replace('-', '−') }}</span>
-          {% else %}<span>{{ cell.label }} · нет подходящей ночи: {{ cell.reason }}</span>{% endif %}
-        </div>
-        {% else %}<span>Нет подходящей ночи: {% if row.time_missing %}нет времени.{% else %}{{ events.empty_reason }}.{% endif %}</span>{% endfor %}
-        {% if row.sources %}<span class="muted" data-sleep-context-hidden hidden>Источники скрыты</span>{% endif %}
-      </td></tr>
+          <br><time>{{ cell.night | owner_short_date }}</time></td>
+      <td class="sleep-context-number">{{ cell.duration }}</td>
+      <td class="sleep-context-number"><time>{{ cell.start|owner_time }}</time></td>
+      <td>{{ cell.comparison|replace('-', '−') }}</td>
+          {% else %}</td><td colspan="3" class="muted">Нет подходящей ночи: {{ cell.reason }}.</td>{% endif %}
+    </tr>
     {% endfor %}
-    </tbody></table>
+    <tr class="muted" data-sleep-context-hidden hidden><td colspan="5">Источники скрыты</td></tr>
+    {% endif %}
+    </tbody>
+    {% endfor %}
+    </table>
   </div>
   {% else %}<p class="muted">Нет сохранённых событий за выбранный период. Отсутствие заметки не означает отсутствие события.</p>{% endif %}
   {% endif %}
@@ -33,12 +41,4 @@
     <p>Отсутствие заметки не означает отсутствие события. У опорных ночей воздействие неизвестно. Это описание, не причина и не диагноз. Другие показатели восстановления здесь не оцениваются.</p>
   </details>
 </section>
-<style>
-.sleep-context th { font-weight: 400; text-align: left; }
-.sleep-context-text { overflow-wrap: anywhere; }
-.sleep-context-result { margin-bottom: 6px; }
-.sleep-context-result[hidden] { display: none; }
-.sleep-context-marker { color: var(--muted); background: transparent; border: 0; padding: 0 3px; font-size: 12px; cursor: help; }
-.sleep-context-marker:focus-visible { outline: 2px solid var(--ink); border-radius: 3px; }
-</style>
 <script src="/static/sleep_context.js" defer></script>
