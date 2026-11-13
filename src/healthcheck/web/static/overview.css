@@ -156,6 +156,12 @@
 .brief-period .overview-info[open] > div { left: 0; right: auto; }
 .overview-comparison { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; margin-top: 14px; }
 .overview-comparison h2 { width: 100%; margin: 0; font-size: 1rem; }
-.overview-comparison div { display: grid; gap: 3px; flex: 1 1 190px; }
+.overview-comparison-rows > div { display: grid; gap: 3px; flex: 1 1 190px; }
 .overview-comparison small { color: var(--muted); font-size: .75rem; }
 @media (max-width: 1279px) { .overview-secondary.overview-band { grid-template-columns: repeat(2, minmax(0, 1fr)); } .overview-band article:nth-of-type(3) { border-left: 0; } .overview-band article:nth-of-type(n+3) { border-top: 1px solid var(--line); } }
+
+.overview-comparison-rows { display: flex; flex-wrap: wrap; gap: 8px 20px; width: 100%; }
+.overview-comparison-unavailable { width: 100%; margin: 0; color: var(--muted); }
+.overview-comparison-details { width: 100%; color: var(--muted); }
+.overview-comparison-details li { margin-top: 8px; }
+.overview-comparison-details li > div { display: grid; gap: 3px; }
