@@ -1,13 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Проверка импорта — Health-Check{% endblock %}
+{% block title %}Данные · Проверка снимка — Health-Check{% endblock %}
 {% block content %}
+<div lang="ru">
+<p><a href="/imports">← Данные и загрузки</a></p>
 <section class="hero">
   <div>
-    <h2>Проверка измерений со снимка</h2>
+    <h2>Проверка снимка</h2>
+    {% call owner_ui.info_details('Как проверить измерения') %}
     <p class="muted">
       {{ {'pending-confirmation': 'Есть кандидаты для проверки.', 'committed': 'Измерения сохранены.', 'failed': 'Загрузка не завершена.', 'rejected': 'Кандидаты отклонены.', 'duplicate': 'Повторная загрузка.'}.get(batch.status, 'Состояние загрузки требует проверки.') }}
       Проверь значения и дату, выбери строки и подтверди их. До подтверждения кандидаты не попадают в измерения. Ошибочные строки можно отклонить.
     </p>
+    {% endcall %}
   </div>
   <p><a href="/imports">Вернуться к данным и загрузкам</a></p>
 </section>
@@ -32,17 +36,22 @@
   <header class="event-head">
     <div>
       <h2>Снимок {{ loop.index }}</h2>
-      <p class="muted">
-        {{ {'pending-confirmation': 'Кандидаты готовы к проверке', 'committed': 'Сохранено', 'failed': 'Не удалось распознать', 'rejected': 'Отклонено', 'duplicate': 'Повторная загрузка'}.get(group.event.status, 'Состояние требует проверки') }}
+      <p class="muted" data-snapshot-state>
+        {% if group.event.status == 'duplicate' %}Повторная загрузка
+        {% elif not group.candidates %}Нет кандидатов для проверки
+        {% elif group.candidates|selectattr('is_pending')|list %}Кандидаты готовы к проверке
+        {% elif group.candidates|selectattr('already_committed')|list %}Есть подтверждённые измерения
+        {% else %}{{ {'failed': 'Не удалось распознать', 'rejected': 'Отклонено'}.get(group.event.status, 'Состояние требует проверки') }}{% endif %}
         {% if group.event.diagnostic_code == 'extractor_not_configured' %} · Распознавание фото не настроено{% elif group.event.diagnostic_code %} · Ошибка распознавания; смотри технические сведения ниже{% endif %}
         {% if group.event.duplicate_of_event_id %} · Снимок уже загружался{% endif %}
       </p>
     </div>
     {% if group.artifact %}
     <figure>
-      <img src="/api/artifacts/{{ group.artifact.id }}" alt="Imported Xiaomi S400 image {{ group.artifact.source_filename or group.artifact.id }}">
-      <figcaption class="muted">Снимок {{ loop.index }}<details class="owner-details"><summary>Данные снимка</summary>hash {{ group.artifact.content_hash[:12] }}… · {{ group.artifact.source_filename or 'Имя файла не указано' }}</details></figcaption>
+      <img src="/api/artifacts/{{ group.artifact.id }}" alt="Снимок весов {{ loop.index }}">
+      <figcaption class="muted">Снимок {{ loop.index }}<details class="owner-details"><summary>Технические детали снимка</summary>{% if group.artifact.content_hash %}Хэш {{ group.artifact.content_hash[:12] }}… · {% endif %}{{ group.artifact.source_filename or 'Имя файла не указано' }}</details></figcaption>
     </figure>
+    {% else %}<p class="muted">Файл не сохранён.</p>
     {% endif %}
   </header>
   {% if group.candidates %}
@@ -65,10 +74,10 @@
       <tr class="candidate-row"
           data-candidate-id="{{ candidate.id }}"
           data-metric="{{ candidate.metric_code }}"
-          data-value="{{ candidate.effective_value }}"
-          data-unit="{{ candidate.effective_unit }}"
-          data-date="{{ candidate.effective_date }}"
-          data-decision="{{ candidate.user_decision }}"
+          data-value="{{ candidate.effective_value if candidate.effective_value is not none else 'нет данных' }}"
+          data-unit="{{ candidate.effective_unit or '' }}"
+          data-date="{{ candidate.effective_date or '' }}"
+          data-decision="{{ candidate.user_decision or '' }}"
           data-committed="{{ 'true' if candidate.already_committed else 'false' }}">
         <td>
           <input type="checkbox" class="candidate-select" value="{{ candidate.id }}"
@@ -79,30 +88,26 @@
           {% if candidate.effective_value is not none %}
             {{ candidate.effective_value|owner_number(3) }} {{ candidate.effective_unit or '' }}
           {% else %}
-            <span class="unavailable">missing</span>
+            <span class="unavailable">Нет данных</span>
           {% endif %}
         </td>
         <td>
           <dl class="provenance-list temporal-evidence">
             <div>
-              <dt>Date</dt>
-              <dd>{{ candidate.effective_date|owner_date if candidate.effective_date else 'unknown / not evidenced' }}</dd>
+              <dt>Дата</dt>
+              <dd>{{ candidate.effective_date|owner_date if candidate.effective_date else 'Не указана' }}</dd>
             </div>
             <div>
-              <dt>Time</dt>
+              <dt>Время</dt>
               <dd>
                 {% if candidate.effective_timestamp %}
-                  {{ candidate.effective_timestamp|owner_date }}
+                  {{ candidate.effective_timestamp|owner_date|replace(' UTC', ' +00:00') }}
                 {% elif candidate.temporal_precision == 'date' %}
-                  not evidenced (date-only)
+                  Не указано · известна только дата
                 {% else %}
-                  unknown / not evidenced
+                  Не указано
                 {% endif %}
               </dd>
-            </div>
-            <div>
-              <dt>Precision</dt>
-              <dd>{{ candidate.temporal_precision or 'unknown / not evidenced' }}</dd>
             </div>
           </dl>
           <details class="owner-details"><summary>Точные даты источника</summary><p>{{ candidate.effective_date or 'unknown / not evidenced' }} · {{ candidate.effective_timestamp or 'unknown / not evidenced' }} · {{ candidate.temporal_precision or 'unknown / not evidenced' }}</p></details>
@@ -110,13 +115,15 @@
         <td>{{ {'pending': 'Ожидает проверки', 'confirmed': 'Подтверждено', 'rejected': 'Отклонено'}.get(candidate.user_decision, 'Решение неизвестно') }}</td>
         <td>
           {% if candidate.confidence is none %}
-            <span class="muted">null (not confirmation)</span>
+            <span class="muted">Не указана</span>
           {% else %}
             {{ candidate.confidence|owner_number(3) }}
           {% endif %}
         </td>
         <td>
           {% set provenance = candidate.provenance %}
+          <p>{{ provenance.provider_display_name or 'Источник не указан' }}{% if provenance.device_display_name or provenance.device_model %} · {{ provenance.device_display_name or provenance.device_model }}{% endif %}</p>
+          <details class="owner-details"><summary>Технические детали источника</summary>
           <dl class="provenance-list">
             <div>
               <dt>Provider/source</dt>
@@ -159,18 +166,20 @@
               </dd>
             </div>
           </dl>
+          <p>Точность даты: {{ candidate.temporal_precision or 'unknown / not evidenced' }}{% if candidate.temporal_precision == 'date' %} · not evidenced (date-only){% endif %}</p>
+          </details>
         </td>
         <td>
           {% if candidate.is_pending %}
           <form class="inline-edit" action="/imports/{{ batch.id }}/edit" method="post">
             <input type="hidden" name="candidate_id" value="{{ candidate.id }}">
-            <input type="number" step="any" name="edited_value" value="{{ candidate.effective_value }}" aria-label="Edited value">
+            <input type="number" step="any" name="edited_value" value="{{ candidate.effective_value if candidate.effective_value is not none else '' }}" aria-label="Edited value">
             <input type="text" name="edited_unit" value="{{ candidate.effective_unit or '' }}" size="4" aria-label="Unit">
             <input type="date" name="edited_source_local_date" value="{{ candidate.effective_date or '' }}" aria-label="Date">
             <button type="submit">Сохранить исправление</button>
           </form>
           {% else %}
-            <span class="muted">locked</span>
+            <span class="muted">Проверка завершена</span>
           {% endif %}
         </td>
       </tr>
@@ -184,9 +193,10 @@
 </article>
 {% endfor %}
 {% call owner_ui.technical_details() %}
-<p>Состояние загрузки: <code>{{ batch.status }}</code>. Распознаватель: {{ batch.extractor_name }} {{ batch.extractor_version }}.</p>
+<p>Состояние загрузки: <code>{{ batch.status }}</code>. Распознаватель: {{ batch.extractor_name or 'Не указан' }} {{ batch.extractor_version or '' }}.</p>
 {% for group in groups %}<p>Снимок {{ loop.index }}: <code>{{ group.event.status }}</code>{% if group.event.diagnostic_code %} · <code>{{ group.event.diagnostic_code }}</code>{% endif %}</p>{% endfor %}
 {% endcall %}
+</div>
 {% endblock %}
 {% block scripts %}
 <script src="/static/dashboard.js"></script>

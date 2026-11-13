@@ -7,7 +7,7 @@
     <label>По дату включительно <input type="date" name="end_date" value="{{ export_end_date }}" max="9999-12-30" required></label>
     <button type="submit" disabled>Скачать</button>
     <details class="owner-info export-source-options" id="analysis-export-options" hidden>
-      <summary>Выбрать источник</summary>
+      <summary><span aria-hidden="true">ⓘ</span> Источники файла</summary>
       <label data-export-garmin-choice hidden>Источник Garmin
         <select name="garmin_source_id" required disabled><option value="">Загрузка источников…</option></select>
       </label>

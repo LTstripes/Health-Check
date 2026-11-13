@@ -1,0 +1,43 @@
+/* Data presentation only. Observatory tokens and existing controls remain shared. */
+#data-status, #import-queue, #analysis-export, #history-heading { scroll-margin-top: 1rem; }
+.data-status-section { margin-bottom: 20px; }
+.data-status-section > .section-heading { margin-bottom: 0; }
+.data-status-section > .owner-info { margin: 0; }
+.data-status-section > .owner-info > summary { padding-top: 8px; padding-bottom: 8px; }
+#data-clock { font-size: .8125rem; margin: 4px 0 12px; }
+.data-source-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 12px; }
+.data-source-card { padding: 16px; font-size: .875rem; overflow-wrap: anywhere; }
+.data-source-card > h3 { font-size: 1rem; margin-bottom: 8px; }
+.data-provider-name::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--series-3); }
+.data-provider-name.garmin::before { background: var(--series-1); }
+.data-provider-name.google::before { background: var(--series-4); }
+.data-source-card .data-chronology { margin: 12px 0 8px; }
+.data-source-card .data-chronology dd { margin: 2px 0 8px; }
+.data-stream-counts { font-size: .8125rem; margin: 8px 0; }
+.data-source-card > details { margin: 8px 0 0; }
+.data-source-card > details > summary { font-size: .8125rem; }
+.data-add-section h3 { margin: 0 0 8px; font-size: 1rem; }
+.data-add-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 24px; }
+.data-add-grid > * { min-width: 0; }
+.data-add-section .owner-info { margin: 0; }
+.data-add-section .upload input { max-width: 100%; min-width: 0; }
+.data-add-section .upload label { flex-basis: 100%; }
+.data-queue-facts { margin: 8px 0; gap: 12px; }
+.data-queue-facts dt { font-size: .8125rem; }
+.data-queue-facts dd { font-size: 1.125rem; margin: 4px 0 0; }
+.data-labs-card { border-left: 1px solid var(--line); padding-left: 24px; }
+.data-import-table { min-width: 720px; font-size: .875rem; }
+.data-import-table .data-count { text-align: right; font-variant-numeric: tabular-nums; }
+.analysis-export > p { margin: 8px 0; }
+.analysis-export .export-source-options { margin: 0; }
+.analysis-export #analysis-export-status:empty { display: none; }
+.data-saved-diagnostics { margin: 12px 0; }
+@media (max-width: 1100px) {
+  .data-source-grid { gap: 8px; }
+  .data-source-card { padding: 12px; }
+  .data-add-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .data-labs-card { border-left: 0; border-top: 1px solid var(--line); padding: 12px 0 0; }
+}
+@media (max-width: 800px) {
+  .data-source-grid { grid-template-columns: minmax(0, 1fr); }
+}

@@ -16,6 +16,10 @@ class Element {
 function find(element, predicate) {
   return [element, ...element.children.flatMap(child => find(child, predicate))].filter(predicate);
 }
+function visibleText(element) {
+  if (element.tag === 'details') return element.children[0].textContent;
+  return element.text + element.children.map(visibleText).join(' ');
+}
 async function run(value, status = 200) {
   const elements = Object.fromEntries(['data-results', 'data-refresh', 'data-feedback', 'data-clock']
     .map(id => [id, new Element('div')]));
@@ -58,6 +62,10 @@ async function run(value, status = 200) {
   partial.providers.garmin.state = 'unavailable'; partial.providers.google.state = 'unavailable';
   const rendered = await run(partial);
   const host = rendered['data-results'];
+  assert.equal(find(host, el => el.dataset.provider).length, 3);
+  const weight = find(host, el => el.dataset.provider === 'weight')[0];
+  assert.match(visibleText(weight), /Весы.*Последние данные.*Неизвестны.*Последнее обновление.*Неизвестно.*Потоки/s);
+  assert.equal(find(weight, el => el.tag === 'details').length, 1);
   const cards = find(host, el => ['garmin', 'google'].includes(el.dataset.provider));
   assert.equal(cards.length, 2);
   for (const card of cards) {
@@ -69,7 +77,9 @@ async function run(value, status = 200) {
   }
   assert.equal((cards[0].textContent.match(/Повтори вход/g) || []).length, 1);
   assert.match(cards[0].textContent, /4 октября 2026/);
-  assert.match(cards[0].textContent, /11 октября 2026, 09:00:00 UTC/);
+  assert.match(cards[0].textContent, /11 октября 2026, 09:00 \+00:00/);
+  assert.doesNotMatch(visibleText(host), /UTC|\d{4}-\d{2}-\d{2}|\d{2}:\d{2}:\d{2}|Повтори вход/);
+  assert.match(visibleText(cards[0]), /Последнее обновление Неизвестно/);
   assert.match(cards[0].textContent, /Сбор отключён/);
   assert.match(cards[1].textContent, /3 октября 2026 — 8 октября 2026/);
   assert.match(cards[1].textContent, /Последняя попытка обновления/);
@@ -79,6 +89,14 @@ async function run(value, status = 200) {
   success.components.forEach(item => { item.state = 'fresh'; item.reason_code = 'evidence_current'; item.actionable = false; });
   success.providers.garmin.state = success.providers.google.state = success.owner.state = 'fresh';
   assert.equal(find((await run(success))['data-results'], el => el.className === 'data-actions uncertainty-note').length, 0);
+  const stale = structuredClone(partial);
+  stale.providers.google.state = 'stale';
+  stale.components.find(item => item.provider === 'google').facts.last_successful_refresh_utc = '2026-10-02T07:31:05.123456Z';
+  const staleHost = (await run(stale))['data-results'];
+  const staleGoogle = find(staleHost, el => el.dataset.provider === 'google')[0];
+  assert.match(visibleText(staleGoogle), /Обновление просрочено/);
+  assert.match(visibleText(staleGoogle), /Последнее обновление 2 октября 2026, 07:31 \+00:00/);
+  assert.doesNotMatch(visibleText(staleGoogle), /за.*будет.*нет данных|05\.123456/);
   const missing = await run(packet);
   assert.match(missing['data-results'].textContent, /Неизвестн/);
   assert.doesNotMatch(missing['data-results'].textContent, /Повтори вход/);

@@ -425,7 +425,22 @@ def test_pending_candidates_precede_newer_completed_history_without_writes(tmp_p
         assert '<details class="owner-details" id="completed-imports">' in html
         assert "Проверить измерения" in html and "Открыть детали" in html
         assert 'class="import-started" datetime="' in html
-        assert "UTC</time>" in html
+        assert "+00:00</time>" in html
+        from overview_html import parse_overview
+
+        document = parse_overview(html)
+        history = document.find("table", classes={"data-import-table"})
+        assert history
+        for table in history:
+            assert [th.text for th in table.one("thead").find("th")] == [
+                "Когда", "Что", "Кандидатов", "Состояние", "Открыть",
+            ]
+        assert html.index('id="data-status"') < html.index('id="import-queue"')
+        assert html.index('id="import-queue"') < html.index('id="analysis-export"')
+        assert html.index('id="analysis-export"') < html.index('id="history-heading"')
+        assert document.one(id="import-queue").one("a", href="/labs").text == (
+            "Открыть «Анализы» →"
+        )
         assert _canonical_snapshot(paths) == before
 
 
@@ -446,6 +461,42 @@ def test_unconfigured_extraction_disables_upload_but_keeps_existing_review(tmp_p
         assert f'href="/imports/{batch}"' in html
         review = client.get(f"/imports/{batch}").text
         assert "Подтвердить выбранные" in review and "Отклонить выбранные" in review
+
+
+def test_snapshot_without_candidates_never_claims_measurements_saved(data_ui):
+    from copy import deepcopy
+
+    from overview_html import parse_overview
+
+    app, _, _ = data_ui
+    with TestClient(app, base_url="http://127.0.0.1:8120",
+                    headers={"Origin": "http://127.0.0.1:8120"}) as client:
+        batch = _upload_batch(client, six_month_synthetic_batch()[:1]).json()["id"]
+        response = client.get(f"/imports/{batch}")
+    context = dict(response.context)
+    groups = deepcopy(context["groups"])
+    groups[0]["candidates"] = []
+    groups[0]["event"]["status"] = "committed"
+    groups[0]["artifact"] = None
+    context["groups"] = groups
+    html = response.template.render(context)
+    document = parse_overview(html)
+    state = document.one("p", **{"data-snapshot-state": None}).text
+    assert "Нет кандидатов для проверки" in state
+    assert "Сохранено" not in state and "подтверждённые" not in state
+    assert "Файл не сохранён" in html and "None" not in html
+
+
+def test_export_source_disclosures_use_existing_identities():
+    import subprocess
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        ["node", str(repo / "scripts/check_analysis_export.cjs")], cwd=repo,
+        capture_output=True, text=True, encoding="utf-8", check=True,
+    )
+    assert result.stdout.startswith("PASS:")
 
 
 def test_freshness_missing_database_returns_only_safe_code(tmp_path):
