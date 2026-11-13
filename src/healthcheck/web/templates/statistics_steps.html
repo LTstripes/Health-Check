@@ -1,7 +1,14 @@
 {% from 'owner_ui.html' import value_meta %}
 {% from 'statistics_steps_chart.html' import steps_info with context %}
 <section class="statistics-steps" aria-labelledby="statistics-steps-title" data-statistics-steps>
-  <h2 id="statistics-steps-title">Шаги</h2>
+  <div class="metric-heading statistics-steps-heading"><h2 id="statistics-steps-title">Шаги</h2>
+    <fieldset class="statistics-segments"><legend class="visually-hidden">Период шагов Garmin</legend>
+      {% for value, label in [('window', 'За период'), ('all_time', 'Вся история Garmin')] %}
+      <label><input form="statistics-controls" type="radio" name="steps_period" value="{{ value }}"{% if selected_steps_period == value %} checked{% endif %}><span>{{ label }}</span></label>
+      {% endfor %}
+    </fieldset>
+    <button form="statistics-controls" type="submit">Показать шаги</button>
+  </div>
   <div class="statistics-steps-panels{% if compact_steps %} statistics-steps-panels--compact{% endif %}">
   <div class="statistics-garmin-steps">
   <div class="metric-heading"><h3>Garmin</h3>

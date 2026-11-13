@@ -21,10 +21,57 @@ from test_overview_completed import NOW as OVERVIEW_NOW
 from test_overview_completed import seed_completed, seed_detail_navigation
 from test_statistics_steps_ui import StepsParser, steps_html
 from test_statistics_ui import projection_database as projection_database
+from test_statistics_ui import seed as seed_statistics
 from test_statistics_ui import statistics_ui as statistics_ui
 from test_stress_baseline import database as database
 
 NNBSP = " "
+
+
+def test_statistics_period_segments_keep_get_context_and_steps_switch(statistics_ui):
+    _, _, client = statistics_ui
+    page = client.get('/statistics', params={
+        'days': 30, 'end_date': '2099-01-07', 'calendar_year': 2098,
+    })
+    assert page.status_code == 200
+    doc = parse_overview(page.text)
+    form = doc.one('form', id='statistics-controls')
+    links = form.one('nav', **{'aria-label': 'Период'}).find('a')
+    assert len(links) == 5
+    assert len([link for link in links if 'aria-current' in link.attrs]) == 1
+    assert not form.find('select', name='period')
+    for link in links:
+        query = parse_qs(urlsplit(link.attrs['href']).query)
+        assert 'days' not in query  # Never send competing old/new selectors.
+        assert query['end_date'] == ['2099-01-07']
+        assert query['calendar_year'] == ['2098']
+        assert client.get(link.attrs['href']).status_code == 200
+    radios = doc.one('section', **{'data-statistics-steps': None}).find('input')
+    assert {radio.attrs['value'] for radio in radios} == {'window', 'all_time'}
+    assert all(radio.attrs['form'] == 'statistics-controls' for radio in radios)
+    assert radios[0].attrs['checked'] is None
+    assert not form.find('input', name='steps_period')
+
+
+@pytest.mark.parametrize('case', ['missing', 'full'])
+def test_statistics_training_table_keeps_unknowns_and_existing_metrics(statistics_ui, case):
+    session, paths, client = statistics_ui
+    seed_statistics(session, paths, case)
+    page = client.get('/statistics', params={'period': '30', 'end_date': '2099-01-07'})
+    assert page.status_code == 200
+    training = parse_overview(page.text).one('section', classes=('statistics-training',))
+    assert 'Полнота журнала неизвестна' in training.text
+    if case == 'missing':
+        assert not training.find('table')
+        assert len(training.find('p', classes=('statistics-empty',))) == 1
+        assert 'это не ноль тренировок' in training.text
+    else:
+        table = training.one('table')
+        assert any('—' in cell.text for cell in table.find('td'))
+        assert 'Бег' not in table.text  # No invented types or per-type aggregates.
+        assert 'Теннис' in table.text and 'Велотренировки' in table.text
+        assert all('/statistics/sessions?' in link.attrs['href']
+                   for link in table.find('a'))
 
 
 @pytest.mark.parametrize("value,expected", [

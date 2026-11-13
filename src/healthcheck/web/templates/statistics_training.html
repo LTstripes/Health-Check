@@ -1,0 +1,29 @@
+{% set side = packet.sides[0] %}
+{% set metrics = side.metrics %}
+{% set types = metrics.activity_type_counts.aggregation.value %}
+{% set sessions = metrics.activity_session_count.aggregation.value %}
+<section class="statistics-training" aria-labelledby="statistics-training-title">
+  <div class="metric-heading"><h2 id="statistics-training-title">Тренировки</h2>
+    {% if 'activity_session_count' in session_links %}<a href="{{ session_links.activity_session_count }}">Все сессии за период →</a>{% endif %}
+  </div>
+  <p>{{ owner_ui.value_meta('Garmin', packet.requested_window.start_date|owner_date ~ ' — ' ~ packet.requested_window.end_date|owner_date) }} <span class="statistics-unknown">Полнота журнала неизвестна</span></p>
+  {% if types is mapping and types or sessions is not none or cycling_cell.aggregation.value is not none or metrics.tennis_session_count.aggregation.value is not none or metrics.tennis_duration_seconds.aggregation.value is not none %}
+  <div class="table-scroll" role="region" tabindex="0" aria-label="Сохранённые тренировки Garmin">
+    <table><thead><tr><th scope="col">Вид / показатель</th><th scope="col">Сессий</th><th scope="col">Время</th><th scope="col">Дистанция, км</th></tr></thead><tbody>
+      {% if types is mapping %}{% for type, count in types.items() %}
+      <tr><th scope="row">{% if 'activity_type_counts' in session_links %}<a href="{{ session_links.activity_type_counts }}">{{ type|owner_activity_type }}</a>{% else %}{{ type|owner_activity_type }}{% endif %}</th><td>{{ count|owner_number(0) }}</td><td>—</td><td>—</td></tr>
+      {% endfor %}{% endif %}
+      <tr><th scope="row">Сохранённые сессии</th><td>{{ sessions|owner_number(0) if sessions is not none else '—' }}</td><td>—</td><td>—</td></tr>
+      {% if cycling_cell.aggregation.value is not none %}
+      <tr><th scope="row"><a href="{{ session_links.cycling_distance_meters }}">Велотренировки · дистанция</a>{% if cycling_cell.source_identity and (not side.source_identity or cycling_cell.source_identity.source_id != side.source_identity.source_id) %}<span class="statistics-row-source">{{ identity(cycling_cell.source_identity) }}</span>{% endif %}</th><td>—</td><td>—</td><td>{{ format_value('cycling_distance_meters', cycling_cell.aggregation.value)|replace(' км', '') }}</td></tr>
+      {% endif %}
+      {% if metrics.tennis_session_count.aggregation.value is not none or metrics.tennis_duration_seconds.aggregation.value is not none %}
+      <tr><th scope="row"><a href="{{ session_links.tennis_session_count }}">Теннис · сохранённые показатели</a></th><td>{{ metrics.tennis_session_count.aggregation.value|owner_number(0) if metrics.tennis_session_count.aggregation.value is not none else '—' }}</td><td>{{ format_value('tennis_duration_seconds', metrics.tennis_duration_seconds.aggregation.value) if metrics.tennis_duration_seconds.aggregation.value is not none else '—' }}</td><td>—</td></tr>
+      {% endif %}
+    </tbody></table>
+  </div>
+  {% else %}
+  <p class="statistics-empty">{{ state_labels[metrics.activity_session_count.state] }}. За выбранный период нет доступных сохранённых тренировок Garmin; это не ноль тренировок. <a href="/garmin">Проверь данные активности →</a></p>
+  {% endif %}
+  {% if cycling_cell.state in ['selection_required', 'search_incomplete'] %}<p class="statistics-source-warning" role="status">{{ 'Выбери источник велодистанции выше.' if cycling_cell.state == 'selection_required' else 'Поиск велодистанции не завершён; итог неизвестен.' }}</p>{% endif %}
+</section>

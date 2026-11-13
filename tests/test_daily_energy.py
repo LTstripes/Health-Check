@@ -1,5 +1,6 @@
 """Synthetic exact daily leaves, offline history and real HTML routes."""
 
+from copy import deepcopy
 from dataclasses import replace
 from datetime import date, timedelta
 from decimal import Decimal
@@ -17,12 +18,31 @@ from healthcheck.garmin.normalization import (
     normalize_garmin_payload,
 )
 from healthcheck.garmin.reprocess import run_garmin_reprocess
+from healthcheck.web.statistics import statistics_energy_chart
 from healthcheck.web.ui_app import create_ui_app
+from overview_html import parse_overview
 from test_garmin_completed_steps import acquire
 from test_overview_completed import NOW
 from test_stress_baseline import database as database
 
 START = date(2099, 1, 1)
+
+
+def test_statistics_chart_rounds_geometry_without_reconstructing_totals():
+    rows = [
+        {'total': 1234, 'bmr': 1000, 'active': 300, 'split': True},
+        {'total': 0, 'bmr': None, 'active': None, 'split': False},
+        {'total': None, 'bmr': 1500, 'active': 300, 'split': False},
+    ]
+    packet = {'rows': rows}
+    before = deepcopy(packet)
+    view = statistics_energy_chart(packet)
+    assert packet == before
+    assert view['ticks'] == [1500, 1000, 500, 0]
+    assert view['bars'][0]['total'] != view['bars'][0]['bmr'] + view['bars'][0]['active']
+    assert view['bars'][1]['total'] == 0
+    assert view['bars'][2]['total'] is None
+    assert statistics_energy_chart(None) is None
 
 
 @pytest.mark.parametrize("key,leaf", FIELDS.items())
@@ -158,6 +178,12 @@ def test_overview_and_statistics_html(database, days, monkeypatch):
         assert stats.status_code == 200
         section = stats.text.split('data-statistics-energy', 1)[1].split('</section>', 1)[0]
         assert '<table>' in section and '<caption>' in section and '<details' in section
+        energy_block = parse_overview(stats.text).one('section', **{'data-statistics-energy': None})
+        folded = energy_block.one('details')
+        assert 'open' not in folded.attrs
+        assert folded.one('summary').text == 'Таблица по дням и о данных'
+        assert folded.one('table') is energy_block.one('table')
+        assert energy_block.one('svg').find('g')
         assert section.count('data-energy-date=') == 7
         if days == 2:
             assert 'data-coverage-qualifier="2/7"' in section

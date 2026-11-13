@@ -9,8 +9,8 @@
 <div class="steps-compact" data-steps-chart="{{ view.provider|lower }}">
   {% if view.assessed %}
   <dl class="steps-headlines">
-    <div{% if view.total is not none and view.count|owner_low_coverage(view.days) %} class="owner-value-low"{% endif %}><dt>Сумма по сохранённым дням</dt><dd data-steps-total>{{ view.total_display if view.total is not none else 'Недоступно' }}</dd></div>
-    <div{% if view.mean is not none and view.count|owner_low_coverage(view.days) %} class="owner-value-low"{% endif %}><dt>В среднем за день с данными</dt><dd data-steps-mean>{{ view.mean_display if view.mean is not none else 'Недоступно' }}</dd></div>
+    <div{% if view.total is not none and view.count|owner_low_coverage(view.days) %} class="owner-value-low"{% endif %}><dt>Сумма по сохранённым дням, шагов</dt><dd data-steps-total>{{ view.total_display if view.total is not none else 'Недоступно' }}</dd></div>
+    <div{% if view.mean is not none and view.count|owner_low_coverage(view.days) %} class="owner-value-low"{% endif %}><dt>В среднем за день с данными, шагов</dt><dd data-steps-mean>{{ view.mean_display if view.mean is not none else 'Недоступно' }}</dd></div>
   </dl>
   {% if view.invalid_days %}<p role="status">Есть противоречивые или недопустимые наблюдения ({{ view.invalid_days }}); они исключены из итога.</p>{% endif %}
   {% if view.rows %}
@@ -28,8 +28,8 @@
     <button type="button" data-steps-previous aria-label="Предыдущий день">←</button>
     <label>День <select data-steps-day aria-label="{{ view.provider }}: выбрать день"><option value="" selected disabled>Выбери день</option>{% for row in view.rows %}<option value="{{ loop.index0 }}">{{ row.date|owner_date }}</option>{% endfor %}</select></label>
     <button type="button" data-steps-next aria-label="Следующий день">→</button>
-  <span class="steps-selected" aria-live="polite" aria-atomic="true"><time data-steps-selected-date class="visually-hidden" hidden></time><span data-steps-selected-separator class="visually-hidden" hidden>: </span><strong data-steps-selected-value></strong> <span data-steps-selected-unit></span></span>
   </div>
+  <p class="steps-selected" aria-live="polite" aria-atomic="true"><time data-steps-selected-date hidden></time><span data-steps-selected-separator hidden>: </span><strong data-steps-selected-value></strong> <span data-steps-selected-unit></span></p>
   <script type="application/json" data-steps-chart-data>{{ view.rows|tojson }}</script>
   <noscript><p>Точные даты и значения доступны через значок информации у названия источника.</p></noscript>
   {% endif %}

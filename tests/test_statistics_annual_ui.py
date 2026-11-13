@@ -88,7 +88,9 @@ def test_annual_route_preserves_packet(
         k: v for k, v in expected.items() if k != "evaluated_at"
     }
     assert f'{owner_date(start)} — {owner_date(end)} · {count} дней' in response.text
-    assert f'value="{period}" selected' in response.text
+    assert f'name="period" value="{period}"' in response.text
+    assert re.search(r'href="[^"]*period=' + period + r'(?:&amp;[^"]*)?" aria-current="true"',
+                     response.text)
     assert 'value="2096-02-29"' in response.text
     parser = MetricParser(response.text)
     for side in expected["sides"]:
