@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from datetime import date
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, localcontext
 from uuid import uuid4
 
 from fastapi import APIRouter, Request
@@ -38,6 +40,7 @@ def render(request, *, status=200, **context):
             {"card": card, "report": by_id[card["report_id"]]} for card in report_cards(listing)
         ]
         context["history_listing"] = service(request).analytes()
+        context["analyte_groups"] = analyte_groups(context["history_listing"])
     response = templates.TemplateResponse(
         request,
         "labs.html",
@@ -117,6 +120,7 @@ def report_card(report: dict) -> dict:
         "basis": basis,
         "draft_error": latest.get("error") if latest and not latest.get("readable") else None,
         "pending_draft": pending,
+        "source_match": source.get("source_match"),
         "sort_date": (date_value or {}).get("value") or "",
     }
 
@@ -127,6 +131,70 @@ def report_cards(listing: dict) -> list[dict]:
     dated = sorted((c for c in cards if c["sort_date"]), key=lambda c: c["sort_date"][:10],
                    reverse=True)
     return dated + [c for c in cards if not c["sort_date"]]
+
+
+def analyte_groups(listing: dict) -> list[dict]:
+    """Presentation only, using the history already loaded for the list."""
+    groups = {}
+    for item in listing["analytes"]:
+        if not item["count"]:
+            continue
+        label = item["latest"]["report"]["snapshot"]["report_label"]
+        group = groups.setdefault(label, {"label": label, "items": []})
+        group["items"].append({**item, "previous": next(iter(item["rows"][1:]), None)})
+    return list(groups.values())
+
+
+def history_chart(history: dict | None) -> dict | None:
+    """Scatter geometry for the first existing unit group; no reference parsing.
+
+    Inequalities retain their comparator and use a hollow boundary marker. Local
+    calendar dates are used literally; undated/non-numeric rows stay in the table.
+    """
+    if not history or not history["groups"]:
+        return None
+    entries = [entry for entry in history["groups"][0]["rows"]
+               if entry["date"] and entry["row"]["value_kind"] == "numeric"
+               and entry["row"]["decimal"] is not None]
+    if len(entries) < 2:
+        return None
+    entries = sorted(entries, key=lambda entry: entry["sort_date"])
+    days = [date.fromisoformat(entry["date"]["value"][:10]) for entry in entries]
+    values = [Decimal(entry["row"]["decimal"]) for entry in entries]
+    with localcontext() as ctx:
+        ctx.prec = 120
+        low, high = min(values), max(values)
+        span = high - low or max(abs(low) / 10, Decimal(1))
+        rough = span / 2
+        magnitude = Decimal(10) ** rough.adjusted()
+        multipliers = map(Decimal, ("1", "2", "2.5", "5", "10"))
+        step = next(multiplier * magnitude for multiplier in multipliers
+                    if multiplier * magnitude >= rough)
+        low = (low / step).to_integral_value(rounding=ROUND_FLOOR) * step
+        high = (high / step).to_integral_value(rounding=ROUND_CEILING) * step
+        if low == high:
+            low, high = low - step, high + step
+
+        def y(value):
+            return round(Decimal(90) - 80 * (value - low) / (high - low), 4)
+
+        points = [{"entry": entry,
+                   "index": history["groups"][0]["rows"].index(entry),
+                   "x": round(Decimal(5) + 90 * Decimal((day - days[0]).days)
+                              / max(1, (days[-1] - days[0]).days), 4)
+                   if days[0] != days[-1] else Decimal(50),
+                   "y": y(value),
+                   "boundary": entry["row"]["comparator"] not in (None, "=")}
+                  for entry, day, value in zip(entries, days, values, strict=True)]
+        ticks = []
+        value = low
+        while value <= high:
+            ticks.append({"value": value, "y": y(value)})
+            value += step
+    return {"points": points, "ticks": ticks, "start": days[0], "end": days[-1],
+            "unit": history["groups"][0]["unit"],
+            "omitted": len(history["groups"][0]["rows"]) - len(entries),
+            "has_boundaries": any(point["boundary"] for point in points)}
 
 
 @router.get("/labs")
@@ -141,6 +209,7 @@ def labs_analyte(request: Request, key: str):
     response = templates.TemplateResponse(
         request, "lab_history.html",
         {"page": "labs", "history": history,
+         "chart": history_chart(history),
          "unreadable_drafts": listing["unreadable_drafts"]},
         status_code=200 if history else 404,
     )

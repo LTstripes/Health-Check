@@ -1,4 +1,43 @@
 
-.lab-table{width:100%;border-collapse:collapse}.lab-table th,.lab-table td{padding:10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}.lab-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.lab-grid label{display:flex;flex-direction:column;gap:4px}.lab-grid input,.lab-grid select,.lab-grid textarea{width:100%;box-sizing:border-box;min-height:36px}.lab-warning{padding:14px;background:var(--attention-bg);color:var(--attention-ink);margin:16px 0}.lab-section{padding:18px 0;border-bottom:1px solid var(--line)}.lab-section summary{cursor:pointer}.lab-small{font-size:14px;overflow-wrap:anywhere}code{overflow-wrap:anywhere}
-.lab-report-list{display:grid;gap:12px;margin-top:12px}.lab-report-card{margin:0}.lab-report-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 16px}.lab-report-head h4{margin:0;font-size:1.0625rem;font-weight:600;overflow-wrap:anywhere}.lab-report-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px 20px;margin:12px 0 8px}.lab-report-meta dt{color:var(--muted);font-size:.75rem;font-weight:600}.lab-report-meta dd{margin:2px 0 0;overflow-wrap:anywhere}.lab-report-card details{margin-top:8px}.lab-status-accepted{background:var(--accent-soft);color:var(--ink)}.lab-status-staging{background:var(--attention-bg);color:var(--attention-ink);border:1px solid var(--attention-ink)}
+.lab-table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+.lab-table th, .lab-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+.lab-table .lab-number, .lab-number { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lab-literal { white-space: pre-wrap; }
+.lab-date { min-width: 7rem; font-variant-numeric: tabular-nums; }
+.lab-analyte-table { min-width: 68rem; table-layout: fixed; }
+.lab-analyte-table th:first-child { width: 30%; }
+.lab-analyte-table thead th:nth-child(2) { width: 12%; }
+.lab-analyte-table thead th:nth-child(3) { width: 10%; }
+.lab-analyte-table thead th:nth-child(4) { width: 13%; }
+.lab-analyte-table thead th:nth-child(5) { width: 11%; }
+.lab-analyte-table thead th:nth-child(6) { width: 10%; }
+.lab-analyte-table thead th:nth-child(7) { width: 14%; }
+.lab-table .lab-group-title { color: var(--muted); background: var(--sunken); font-weight: 600; }
+.lab-analyte-table tbody th[scope="row"] { font-weight: 400; }
+.lab-table a { display: inline-flex; align-items: center; min-height: 44px; }
+.lab-reports-table { min-width: 64rem; }
+.lab-reports-table td:nth-child(2) { min-width: 16rem; }
+.lab-flag { display: inline-block; border: 1px solid var(--line-strong); border-radius: 4px; padding: 1px 6px; color: var(--muted); background: var(--sunken); font-size: .75rem; white-space: normal; }
+.lab-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.lab-grid label { display: flex; flex-direction: column; gap: 4px; }
+.lab-grid input, .lab-grid select, .lab-grid textarea { width: 100%; box-sizing: border-box; min-height: 44px; }
+.lab-warning { padding: 14px; background: var(--attention-bg); color: var(--attention-ink); margin: 16px 0; }
+.lab-section { padding: 12px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.lab-section h2 { margin-top: 0; }
+.lab-section summary, .lab-review summary { cursor: pointer; min-height: 44px; display: list-item; align-content: center; }
+.lab-section button, .lab-section input[type="file"] { min-height: 44px; }
+.lab-section input[type="checkbox"] { width: 24px; height: 24px; margin: 10px; vertical-align: middle; }
+.lab-small { font-size: .875rem; overflow-wrap: anywhere; }
+.lab-toolbar { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; }
+.lab-toolbar[hidden] { display: none; }
+.lab-toolbar input[type="search"] { min-height: 44px; width: 20rem; max-width: 100%; }
+.lab-toolbar label { display: flex; align-items: center; gap: 8px; }
+.lab-toolbar p { margin: 0; color: var(--muted); font-size: .875rem; }
+.lab-listing code, .lab-review code { overflow-wrap: anywhere; }
+/* Native anchor links select panels even when JavaScript is disabled. */
+.lab-listing > .lab-panel { display: none; }
+.lab-listing > #lab-analytes { display: block; }
+.lab-listing:has(> #lab-reports:target) > #lab-analytes,
+.lab-listing:has(> #lab-add:target) > #lab-analytes { display: none; }
+.lab-listing > #lab-reports:target, .lab-listing > #lab-add:target { display: block; }
 

@@ -1,6 +1,7 @@
 """Synthetic-only current confirmed analyte history and desktop entry points."""
 
 import copy
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,6 +12,7 @@ from healthcheck.db.models import RawArtifact
 from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
 from healthcheck.labs.history import analyte_key, normalized_name, unit_key
 from healthcheck.labs.models import LabInterpretation
+from healthcheck.web.labs import analyte_groups, history_chart
 from healthcheck.web.ui_app import create_ui_app
 from test_lab_intake import BASE, confirm, draft, raw, synthetic_pdf
 from test_lab_intake import runtime as runtime
@@ -78,7 +80,7 @@ def test_confirmed_history_grouping_literal_values_dates_and_pdf(runtime):
         assert client.get(f'/labs/{old["report_id"]}/original').content == old_pdf
         assert '<details class="lab-history-meta">' in page and '<details open' not in page
         index = client.get("/labs").text
-        assert index.index("<h3>Показатели</h3>") < index.index("<h3>Сохранённые отчёты</h3>")
+        assert index.index('id="lab-analytes-heading"') < index.index('id="lab-reports-heading"')
         assert f'href="/labs/analytes/{item["key"]}"' in index
         review = client.get(f'/labs/review/{old["interpretation_id"]}').text
         assert f'href="/labs/analytes/{item["key"]}"' in review
@@ -145,3 +147,63 @@ def test_name_key_is_safe_and_deterministic(name):
     assert unit_key(" MG / L ") == unit_key("mg / l")
     assert unit_key(None) != unit_key("")
     assert unit_key("mg/l") != unit_key("mg/l.")
+
+
+def test_list_previous_reference_and_report_groups_use_loaded_history(runtime):
+    service, paths = runtime
+    add(service, "older", unit="ммоль/л", date={"value": "2099-01-01", "precision": "date"})
+    add(service, "latest", unit=None, printed={"value": "2099-02-01", "precision": "date"})
+    add(service, "other-name", name="Другой маркер")
+    listing = service.analytes()
+    before = copy.deepcopy(listing)
+    groups = analyte_groups(listing)
+    assert listing == before
+    item = next(item for group in groups for item in group["items"] if item["name"] == "Маркер")
+    assert item["latest"]["row"]["reference_raw"] == "Референс latest"
+    assert item["previous"]["row"]["unit_raw"] == "ммоль/л"
+    assert item["previous"]["date"]["value"] == "2099-01-01"
+    with client_for(paths) as client:
+        page = client.get("/labs").text
+        assert 'class="lab-table lab-analyte-table"' in page
+        assert 'data-lab-count="2"' in page and 'data-lab-count="1"' in page
+        assert 'aria-label="2 результата"' in page
+        assert "Референс latest" in page and "ммоль/л · 1 янв 2099" in page
+        assert 'class="lab-literal">не указана</td>' in page
+        assert 'title="Пометка из отчёта лаборатории"' in page
+        assert 'data-lab-filters hidden' in page
+
+
+def test_history_scatter_keeps_unit_dates_boundaries_and_missing_rows_separate():
+    def entry(value, day, *, unit="мг/л", kind="numeric", comparator=None):
+        return {"row": {"decimal": value, "value_kind": kind, "comparator": comparator,
+                        "unit_raw": unit},
+                "date": {"value": day} if day else None, "sort_date": day or ""}
+
+    rows = [entry("10", "2099-01-11", comparator="<"),
+            entry(None, "2099-01-06", kind="qualitative"),
+            entry("0", "2099-01-01"), entry("99", None)]
+    history = {"groups": [{"unit": "мг/л", "rows": rows},
+                          {"unit": "ммоль/л", "rows": [entry("500", "2099-02-01")]}]}
+    before = copy.deepcopy(history)
+    chart = history_chart(history)
+    assert history == before
+    assert chart["unit"] == "мг/л" and chart["omitted"] == 2
+    assert len(chart["points"]) == 2
+    zero, boundary = chart["points"]
+    assert zero["entry"]["row"]["decimal"] == "0" and zero["y"] == 90
+    assert zero["index"] == 2 and zero["x"] == 5
+    assert boundary["boundary"] and boundary["index"] == 0 and boundary["x"] == 95
+    assert chart["has_boundaries"]
+    assert [tick["value"] for tick in chart["ticks"]] == [Decimal(0), Decimal(5), Decimal(10)]
+    assert history_chart({"groups": [{"unit": None, "rows": rows[:1]}]}) is None
+    assert history_chart(None) is None
+
+
+@pytest.mark.parametrize("value", ["0", "-0.00001", "9" * 99, "0." + "0" * 96 + "1"])
+def test_history_scatter_equal_values_and_same_day_are_finite(value):
+    entry = {"row": {"value_kind": "numeric", "decimal": value, "comparator": None},
+             "date": {"value": "2099-01-01"}, "sort_date": "2099-01-01"}
+    chart = history_chart({"groups": [{"unit": None, "rows": [entry, copy.deepcopy(entry)]}]})
+    assert len(chart["points"]) == 2
+    assert all(point["x"] == 50 and 10 <= point["y"] <= 90 for point in chart["points"])
+    assert 2 <= len(chart["ticks"]) <= 4
