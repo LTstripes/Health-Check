@@ -84,10 +84,11 @@ def test_ineligible_bounds_are_not_invented(problem):
 def test_midnight_late_start_and_axis_extension(tmp_path):
     data = sleep_timeline_client(_timeline())
     [normal] = _render(tmp_path, {"data": data})
-    assert normal["axis"]["min"] == 1080 and normal["axis"]["max"] == 2280
+    assert normal["axis"]["min"] == 1260 and normal["axis"]["max"] == 2100
     cell = normal["rows"][0]["cells"][0]
     assert cell["start"] == 1380 and cell["end"] == 1860
-    assert 'left:25%;width:40%' in normal["html"]
+    assert normal["axis"]["ticks"] == list(range(1260, 2101, 120))
+    assert 'left:14.285714285714286%;width:57.142857142857146%' in normal["html"]
     for bounds in data["schedule_bounds"].values():
         bounds[-1]["start_local"] = "2026-10-08T03:10:00+00:00"
     [late] = _render(tmp_path, {"data": data})
@@ -98,6 +99,8 @@ def test_midnight_late_start_and_axis_extension(tmp_path):
     [extended] = _render(tmp_path, {"data": data})
     assert extended["axis"]["min"] == 960 and extended["axis"]["max"] == 2400
     assert 'left:0%;width:100%' in extended["html"]
+    assert extended["rows"][0]["cells"][0]["start"] == 960
+    assert extended["rows"][0]["cells"][0]["end"] == 2400
 
 
 def test_missing_duration_without_bounds_and_exact_identity(tmp_path):
@@ -109,12 +112,17 @@ def test_missing_duration_without_bounds_and_exact_identity(tmp_path):
     html = result["html"]
     assert html.count('data-schedule-date=') == 7
     assert 'нет данных' in html and 'границы не сохранены' in html
-    assert html.count('data-schedule-bar=') == 2
+    assert html.count('data-schedule-bar=') == 4
+    assert html.count('sleep-schedule-unbounded owner-chart-hatch') == 2
+    chart = html.split('<details', 1)[0]
+    assert 'sleep-schedule-note' not in chart
+    assert re.search(r'class="sleep-schedule-bar sleep-schedule-unbounded[^>]*></span>', chart)
     assert '7 ч 30 мин' in html
     for bounds in data["schedule_bounds"].values():
         bounds[0]["record_id"] = "wrong-record"
     [mismatch] = _render(tmp_path, {"data": data})
-    assert 'data-schedule-bar=' not in mismatch["html"]
+    assert mismatch["html"].count('sleep-schedule-unbounded owner-chart-hatch') == 4
+    assert all(cell["bound"] is None for row in mismatch["rows"] for cell in row["cells"])
 
 
 def test_separate_sources_toggle_table_summary_and_travel(tmp_path):
@@ -130,11 +138,11 @@ def test_separate_sources_toggle_table_summary_and_travel(tmp_path):
     html = full["html"]
     assert html.count('data-schedule-bar="garmin:sleep"') == 7
     assert html.count('data-schedule-bar="google:sleep"') == 7
-    assert 'top:0px;' in html and 'top:7px;' in html
+    assert 'top:2px;' in html and 'top:11px;' in html
     assert 'var(--series-1)' in html and 'var(--series-4)' in html
     assert 'Часовой пояс: Europe/Moscow → Asia/Bangkok' in html
-    assert 'Начало сна: разброс ±0 мин · Окончание: ±0 мин' in html
-    assert 'data-coverage-qualifier="7/7"' not in html
+    assert '<td>± 0 мин</td><td>± 0 мин</td>' in html
+    assert '7 из 7 ночей' in html
     assert '<details class="owner-details"><summary>Таблица</summary>' in html
     assert 'scope="col">Часовой пояс' in html
     assert 'aria-label="8 окт · Garmin · 23:00 → 07:00 · 8 ч 00 мин' in html
@@ -146,13 +154,14 @@ def test_separate_sources_toggle_table_summary_and_travel(tmp_path):
     assert chart.count('data-schedule-bar="google:sleep"') == 7
     assert 'Garmin' in table
     assert 'Источники скрыты' in hidden["html"]
-    assert 'sleep-schedule-summary' not in hidden["html"]
+    assert 'data-regularity-source=' not in hidden["html"]
 
 
 @pytest.mark.parametrize("count", [0, 2])
-def test_regularity_absent_is_omitted(tmp_path, count):
+def test_insufficient_regularity_remains_text_not_zero(tmp_path, count):
     [result] = _render(tmp_path, {"data": sleep_timeline_client(_timeline(count=count))})
-    assert 'Начало сна: разброс' not in result["html"]
+    assert 'Недостаточно ночей' in result["html"]
+    assert '<td>± 0 мин</td>' not in result["html"]
 
 
 @pytest.mark.parametrize("days", [7, 30])
@@ -166,13 +175,21 @@ def test_production_http_packet_and_js_render(tmp_path, days):
     assert html.count('{% include') == 0
     assert html.count('id="sleep-schedule"') == 1
     assert '/static/sleep_schedule.js' in html
+    section = html.split('<section class="card sleep-schedule"', 1)[1].split('</section>', 1)[0]
+    assert '<style>' not in section
+    assert 'Загрузка расписания…' in section
+    assert re.search(r'<noscript>.*?Для расписания нужен JavaScript', section, re.S)
+    assert 'Рабочие дни: пн–пт · изменить' in section
+    assert 'Разброс начала' in section and 'Разброс окончания' in section
+    assert 'Середина: рабочие → свободные · сдвиг' in section
+    assert f'из {days} ночей' in section
     packet = json.loads(re.search(
         r'<script id="sleep-timeline-data" type="application/json">(.*?)</script>',
         html, re.S,
     ).group(1))
     assert 'interval_snapshots' not in json.dumps(packet)
     [result] = _render(tmp_path, {"data": packet})
-    assert result["html"].count('data-schedule-date=') == days
+    assert result["html"].count('data-schedule-date=') == min(days, 14)
     assert 'data-schedule-bar=' in result["html"]
     assert len(response.content) < 1_000_000
 
@@ -183,3 +200,43 @@ def test_schedule_partial_coverage_uses_supplied_policy(tmp_path):
     assert 'data-coverage-qualifier="4/7"' in result["html"]
     assert 'class="owner-value-low"' in result["html"]
     assert '4 из 7 ночей' in result["html"]
+
+
+def test_thirty_nights_expand_without_changing_packet_or_axis(tmp_path):
+    data = sleep_timeline_client(_timeline(count=30, days=30))
+    before = deepcopy(data)
+    compact, full = _render(tmp_path, {"data": data}, {"data": data, "expanded": True})
+    assert compact["html"].count('data-schedule-date=') == 14
+    assert full["html"].count('data-schedule-date=') == 30
+    assert 'все 30' in compact["html"] and '14 последних' in full["html"]
+    assert compact["axis"] == full["axis"]
+    assert data == before
+    assert compact["html"].index('data-schedule-date="2026-10-08"') < compact["html"].index(
+        'data-schedule-date="2026-09-25"')
+    assert 'data-schedule-date="2026-09-24"' not in compact["html"]
+
+
+def test_incompatible_partitions_match_by_identity_not_order(tmp_path):
+    data = sleep_timeline_client(_timeline())
+    source = data["regularity"]["sources"][0]
+    first = source["groups"][0]
+    second = deepcopy(first)
+    second["partition"]["end_method"] = 'different-method'
+    second["start"]["text"] = '17 мин'
+    source["groups"].append(second)
+    jet = deepcopy(source["jetlag"]["groups"][0])
+    jet["partition"] = second["partition"]
+    jet.update(state='insufficient', text='Недостаточно свободных ночей (1)', signed_minutes=None)
+    source["jetlag"]["groups"].insert(0, jet)
+    [result] = _render(tmp_path, {"data": data})
+    table = result["html"].split('</tbody>', 1)[0]
+    assert re.search(r'группа 2.*?17 мин.*?Недостаточно свободных ночей \(1\)', table)
+    assert table.count('data-regularity-source="garmin"') == 2
+
+
+def test_schedule_dom_selection_expand_and_json_failure():
+    result = subprocess.run(
+        ["node", str(REPO / "scripts/check_sleep_schedule.cjs")], cwd=REPO,
+        check=True, capture_output=True, text=True, encoding="utf-8",
+    )
+    assert 'PASS: schedule selection' in result.stdout

@@ -62,7 +62,8 @@ function setup(display_series) {
   }
   function click(key, value) { const node = new Node(); node.setAttribute(key, value); detail.events.click({target: node}); }
   function points() { return host.children.at(-1).children.flatMap(group => group.children).filter(node => node.getAttribute('data-wake-date')); }
-  return {detail, host, table, toggles, fetches, click, points, packet, dataNode};
+  return {detail, host, table, toggles, fetches, click, points, packet, dataNode,
+    selection: context.window.healthcheckSleepSelection};
 }
 let ui = setup([series('garmin', ['value', 'ambiguous', 'no_records']), series('google', ['value', 'value', 'value'])]);
 assert.match(ui.detail.innerHTML, /За ночь на 10 ноября у Garmin нет записи/);
@@ -138,6 +139,20 @@ assert.equal(ui.points().length, 2); // The missing date has no zero-valued poin
 assert.equal(ui.points().find(node => node.getAttribute('aria-pressed') === 'true').getAttribute('data-wake-date'), dates[2]);
 assert.match(ui.detail.innerHTML, /aria-label="0 мин"/);
 assert.deepEqual(JSON.parse(ui.dataNode.textContent), ui.packet);
+let selectionUpdates = 0;
+ui.selection.onChange = () => selectionUpdates++;
+ui.selection.select(dates[0], 'garmin');
+assert.equal(ui.selection.current.date, dates[0]);
+assert.equal(ui.selection.current.seriesId, 'garmin');
+assert.match(ui.detail.innerHTML, /Ночь на 8 ноября/);
+ui.selection.select(dates[1], 'garmin');
+assert.match(ui.detail.innerHTML, /нет записи/);
+assert.equal(ui.selection.current.date, dates[1]);
+const fetchCount = ui.fetches.length;
+ui.selection.select('2026-11-01', 'garmin');
+assert.equal(ui.selection.current.date, dates[1]);
+assert.equal(ui.fetches.length, fetchCount);
+assert.equal(selectionUpdates, 2);
 ui = setup([series('garmin', ['value', 'value', 'value'])]);
 assert.match(ui.detail.innerHTML, /Ночь на 10 ноября/);
 assert.match(ui.fetches[0], /provider=garmin.*wake_date=2026-11-10/);

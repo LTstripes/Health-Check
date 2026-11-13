@@ -1,16 +1,50 @@
 <section class="card sleep-schedule" aria-labelledby="sleep-schedule-title">
   <h2 id="sleep-schedule-title">Когда я спал</h2>
-  <p class="muted">Местное время каждой ночи · дата пробуждения. Garmin — верхняя полоса, Google — нижняя. Источники переключаются над графиком длительности.</p>
+  <p class="muted sleep-schedule-caption">Местное время · дата пробуждения · {{ start_date | owner_date_range(wake_date, true) }}</p>
   <div id="sleep-schedule">
+    <p class="muted" data-schedule-loading>Загрузка расписания…</p>
+  <div data-sleep-regularity>
+    {% if timeline and timeline.regularity.sources %}
+    <div class="table-scroll"><table class="sleep-schedule-summary" aria-label="Регулярность сна по источникам">
+      <thead><tr><th scope="col">Источник</th><th scope="col">Разброс начала</th><th scope="col">Разброс окончания</th><th scope="col">Середина: рабочие → свободные · сдвиг</th><th scope="col">Ночей</th></tr></thead>
+      <tbody>
+      {% for source in timeline.regularity.sources %}
+        {% if source.state == 'unavailable' or not source.groups %}
+        <tr data-regularity-source="{{ source.provider }}"><th scope="row">{{ source.label }}</th>
+          <td colspan="4">{{ 'Не удалось оценить этот период.' if source.state == 'unavailable' else 'Пока недостаточно подходящих ночей.' }}</td></tr>
+        {% else %}
+        {% for group in source.groups %}
+        <tr data-regularity-source="{{ source.provider }}" data-regularity-group>
+          <th scope="row">{{ source.label }}{% if source.groups | length > 1 %} · группа {{ loop.index }}{% endif %}</th>
+          {% if group.start.state != 'sufficient' and group.start.text == group.end.text %}
+          <td colspan="2">{{ group.start.text }}</td>
+          {% else %}<td>{% if group.start.state == 'sufficient' %}± {% endif %}{{ group.start.text }}</td><td>{% if group.end.state == 'sufficient' %}± {% endif %}{{ group.end.text }}</td>{% endif %}
+          <td>{% if source.jetlag %}{% set jet = source.jetlag.groups | selectattr('partition', 'equalto', group.partition) | list %}{{ jet[0].text if jet else 'Сравнение недоступно' }}{% else %}Сравнение недоступно{% endif %}</td>
+          <td{% if group.nights | owner_low_coverage(timeline.days) %} class="owner-value-low"{% endif %}>{{ group.nights }} из {{ timeline.days }} {{ timeline.days | owner_plural('ночь', 'ночи', 'ночей') }}</td>
+        </tr>
+        {% endfor %}
+        {% endif %}
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<p>{{ timeline.regularity.empty_text if timeline else 'Не удалось оценить этот период.' }}</p>{% endif %}
+    {% call owner_ui.info_details("О регулярности сна") %}
+    <p>Меньше разброс — стабильнее время сна. Это стандартное отклонение местного времени начала и конца подходящей основной сессии сна, а не оценка здоровья.</p>
+    <p>Учитываются только подходящие ночи с подтверждённым временем и часовым поясом. Пригодная длительность сна сама по себе не подтверждает его границы. Источники и несовместимые способы записи считаются раздельно; полнота сбора неизвестна.</p>
     {% if timeline %}{% for source in timeline.regularity.sources %}
-    {% if source.jetlag %}{% for group in source.jetlag.groups %}
-    <p class="sleep-schedule-summary">{{ source.label }} · {{ group.text }}</p>
-    {% endfor %}{% endif %}{% endfor %}
-    {% if not timeline.regularity.sources %}<p class="muted">{{ timeline.regularity.empty_text }}</p>{% endif %}
-    {% endif %}
-    <p class="muted">Для расписания нужен JavaScript. Сохранённые состояния доступны в таблице длительности выше.</p>
+      {% if source.eligible_nights is not none %}
+      <p>{{ source.label }}: подходящих ночей {{ source.eligible_nights }}; исключено {{ source.excluded_nights }}. Для каждой совместимой группы нужно не меньше {{ source.min_nights }} ночей.</p>
+      {% for group in source.groups %}<p>Группа {{ loop.index }}: {{ group.nights }} ночей; часовой пояс {{ group.partition.local_clock_regime }}; начало {{ group.partition.start_method }}, конец {{ group.partition.end_method }}.</p>{% endfor %}
+      {% endif %}
+    {% endfor %}{% endif %}
+    {% endcall %}
   </div>
-  <details class="owner-details sleep-day-settings"><summary>Рабочие дни недели</summary>
+    {% if timeline %}{% for source in timeline.regularity.sources %}{% if source.jetlag %}{% for group in source.jetlag.groups %}
+    <noscript><p>{{ source.label }} · {{ group.text }}</p></noscript>
+    {% endfor %}{% endif %}{% endfor %}{% endif %}
+    <noscript><p>Для расписания нужен JavaScript. <a href="#sleep-duration-table">Таблица длительности →</a></p></noscript>
+  </div>
+  <details class="owner-details sleep-day-settings"><summary>Рабочие дни: {% if schedule_settings.state == 'available' %}{% if schedule_settings.work_weekdays == (0, 1, 2, 3, 4) %}пн–пт{% elif not schedule_settings.work_weekdays %}нет{% else %}{% for label in ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'] %}{% if loop.index0 in schedule_settings.work_weekdays %}{{ label }} {% endif %}{% endfor %}{% endif %}{% else %}неизвестны{% endif %} · изменить</summary>
     <p class="muted">Твоё расписание: по умолчанию пн–пт. Исключение по дате пробуждения важнее дней недели.</p>
     {% if schedule_settings.state == 'available' %}
     {% set sleep_target = '/sleep' ~ ('?' ~ request.url.query if request.url.query else '') %}
@@ -38,28 +72,4 @@
     {% else %}<p class="muted">Настройки недоступны. Типы дней неизвестны; сравнение не вычисляется.</p>{% endif %}
   </details>
 </section>
-<style>
-.sleep-schedule { --schedule-label: 72px; }
-.sleep-schedule-axis, .sleep-schedule-row { display: grid; grid-template-columns: var(--schedule-label) minmax(0, 1fr); gap: 8px; }
-.sleep-schedule-axis { height: 24px; color: var(--muted); font-size: 10px; }
-.sleep-schedule-clock, .sleep-schedule-track { position: relative; }
-.sleep-schedule-tick { position: absolute; transform: translateX(-50%); white-space: nowrap; }
-.sleep-schedule-tick:first-child { transform: none; }
-.sleep-schedule-tick:last-child { transform: translateX(-100%); }
-.sleep-schedule-row { min-height: 22px; }
-.sleep-schedule-compact .sleep-schedule-row { min-height: 14px; }
-.sleep-schedule-date { color: var(--muted); font-size: 10px; line-height: 14px; white-space: nowrap; }
-.sleep-schedule-track { border-bottom: 1px solid var(--line); min-height: 14px; }
-.sleep-schedule-grid { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line); pointer-events: none; }
-.sleep-schedule-bar { position: absolute; height: 5px; min-height: 0; min-width: 1px; padding: 0; border: 0; border-radius: 2px; cursor: help; }
-.sleep-schedule-bar:hover, .sleep-schedule-bar:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; z-index: 2; }
-.sleep-schedule-note { position: absolute; left: 2px; color: var(--muted); font-size: 9px; line-height: 7px; white-space: nowrap; max-width: calc(100% - 4px); overflow: hidden; text-overflow: ellipsis; }
-.sleep-schedule-empty { color: var(--muted); font-size: 10px; line-height: 14px; position: relative; }
-.sleep-schedule-divider { border-top: 1px solid var(--line-strong); color: var(--muted); font-size: 10px; padding: 2px 0; overflow-wrap: anywhere; }
-.sleep-schedule-summary { margin: 4px 0 8px; font-size: 12px; }
-.sleep-schedule-detail { min-height: 1.5em; font-size: 12px; margin: 6px 0; }
-.sleep-schedule-free { color: var(--muted); font-size: 9px; margin-left: 3px; }
-.sleep-day-settings fieldset { display: flex; flex-wrap: wrap; gap: 8px; border: 0; padding: 0; }
-@media (max-width: 480px) { .sleep-schedule { --schedule-label: 58px; } .sleep-schedule-axis { font-size: 8px; } }
-</style>
 <script src="/static/sleep_schedule.js" defer></script>

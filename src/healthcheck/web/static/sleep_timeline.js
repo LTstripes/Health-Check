@@ -190,6 +190,12 @@
     focusables.forEach(node => node.setAttribute("aria-pressed", String(Boolean(current &&
       node.getAttribute("data-sleep-series-id") === current.series.series_id &&
       node.getAttribute("data-wake-date") === current.point.wake_date))));
+    if (window.healthcheckSleepSelection) {
+      window.healthcheckSleepSelection.current = current ? {
+        date: current.point.wake_date, seriesId: current.series.series_id
+      } : null;
+      if (window.healthcheckSleepSelection.onChange) window.healthcheckSleepSelection.onChange();
+    }
   }
 
   function selectedEvidence(point) {
@@ -590,6 +596,17 @@
     if (replacement) replacement.focus({preventScroll: true});
   });
   // Night selection and source controls also apply when the chart has no markers.
+  // Schedule selection uses the same exact-date controller, including missing nights.
+  window.healthcheckSleepSelection = {
+    current: null,
+    select(date, seriesId) {
+      const visible = visibleSeries();
+      const series = visible.find(item => item.series_id === seriesId) ||
+        visible.find(item => current && item.series_id === current.series.series_id) || visible[0];
+      if (!series || !data.dates.includes(date)) return;
+      showPoint(series, pointAt(series, date));
+    }
+  };
   bindLegend();
   const initial = visibleSeries().find(item => item.provider === "garmin") || visibleSeries()[0];
   showPoint(initial, pointAt(initial, data.end_date || data.dates[data.dates.length - 1]));
