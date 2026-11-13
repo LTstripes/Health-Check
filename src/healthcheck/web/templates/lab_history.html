@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}{{ history.name if history else 'История показателя' }} — Health-Check{% endblock %}
-{% block styles %}<link rel="stylesheet" href="/static/lab_history.css">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/labs.css"><link rel="stylesheet" href="/static/lab_history.css">{% endblock %}
 {% block content %}
-<p><a href="/labs">← Лабораторные отчёты</a></p>
+<p><a href="/labs#lab-analytes">← Показатели</a></p>
 <h2>{{ history.name if history else 'История показателя' }}</h2>
 {% if history and history.count %}
 <p class="muted">{{ history.count }} {{ history.count|owner_plural("результат", "результата", "результатов") }}{% if history.first_date %} · с {{ history.first_date|owner_short_date(true) }} по {{ history.last_date|owner_short_date(true) }}{% else %} · даты не указаны{% endif %}</p>
@@ -11,13 +11,14 @@
 {% for group in history.groups %}
 <section class="lab-history-group" data-lab-unit-group>
 <h3>{% if not loop.first %}Другая единица: {{ group.unit if group.unit is not none else 'не указана' }} — не сравнивается автоматически{% else %}Единица: {{ group.unit if group.unit is not none else 'не указана' }}{% endif %}</h3>
+{% if loop.first and chart %}{% include "lab_history_chart.html" %}{% endif %}
 <div class="table-scroll"><table class="lab-history-table">
 <thead><tr><th scope="col">Дата</th><th scope="col">Результат</th><th scope="col">Единица</th><th scope="col">Референс отчёта</th><th scope="col">Флаг в отчёте</th><th scope="col">Лаборатория / клиника</th><th scope="col">Оригинал</th></tr></thead>
-<tbody>{% for entry in group.rows %}{% set row = entry.row %}{% set snapshot = entry.report.snapshot %}
-<tr><td>{{ entry.date.value|owner_date if entry.date else 'Дата не указана' }}{% if entry.date %}<br><span class="muted">{{ 'дата печати · ' if entry.date_kind == 'printed' else '' }}точность {{ {'date':'до дня','minute':'до минуты','second':'до секунды'}[entry.date.precision] }}</span>{% endif %}</td>
-<td class="literal">{{ row|owner_lab_result }}</td><td class="literal">{{ row.unit_raw if row.unit_raw is not none else 'Не указана' }}</td><td class="literal">{{ row.reference_raw if row.reference_raw is not none else 'Не указан' }}</td><td class="literal">{{ row.flag_raw if row.flag_raw is not none else 'Не указан' }}</td>
+<tbody>{% set first_group = loop.first %}{% for entry in group.rows %}{% set row = entry.row %}{% set snapshot = entry.report.snapshot %}
+<tr{% if first_group %} id="lab-history-row-{{ loop.index0 }}"{% endif %}><td>{{ entry.date.value|owner_short_date(true) if entry.date else 'Дата не указана' }}{% if entry.date and entry.date_kind == 'printed' %}<br><span class="lab-flag">дата печати</span>{% endif %}</td>
+<td class="literal{{ ' lab-number' if row.value_kind == 'numeric' else '' }}">{{ row|owner_lab_result }}</td><td class="literal">{{ row.unit_raw if row.unit_raw is not none else 'Не указана' }}</td><td class="literal">{{ row.reference_raw if row.reference_raw is not none else 'Не указан' }}</td><td class="literal">{% if row.flag_raw is not none %}<span class="lab-flag" title="Пометка из отчёта лаборатории">{{ row.flag_raw }}</span>{% else %}Не указан{% endif %}</td>
 <td>{{ snapshot.performing_lab or 'Лаборатория не указана' }}<br><span class="muted">{{ snapshot.clinic_source or 'Клиника не указана' }}</span></td>
-<td><a href="/labs/{{ entry.report.report_id }}/original">Скачать PDF</a><details class="lab-history-meta"><summary>Данные транскрипции</summary><p>Исходный результат: {{ row.result_raw }}</p><p>Название: {{ row.label_raw }} · Сверка: {{ snapshot.source_match }}</p><p>Отчёт: {{ entry.report.report_id }} · Версия: {{ entry.report.revision_id }} · Транскрипция: {{ entry.report.interpretation_id }} · Строка: {{ row.row_id }}</p><p>Происхождение строки: {{ row.provenance|tojson }} · Поля: {{ row.field_provenance|tojson }} · Происхождение отчёта: {{ snapshot.provenance|tojson }} · Поля отчёта: {{ snapshot.field_provenance|tojson }}</p>{% if row.uncertainty or snapshot.uncertainty %}<p>{{ row.uncertainty or '' }} {{ snapshot.uncertainty or '' }}</p>{% endif %}</details></td></tr>
+<td><a href="/labs/{{ entry.report.report_id }}/original">Скачать PDF</a>{% if row.uncertainty or snapshot.uncertainty %}<p>{{ row.uncertainty or '' }} {{ snapshot.uncertainty or '' }}</p>{% endif %}<details class="lab-history-meta"><summary>Технические детали</summary><p>Дата: {{ entry.date.value|owner_date if entry.date else 'Дата не указана' }}{% if entry.date %} · {{ 'дата печати · ' if entry.date_kind == 'printed' else '' }}точность {{ {'date':'до дня','minute':'до минуты','second':'до секунды'}[entry.date.precision] }}{% endif %}</p><p>Исходный результат: {{ row.result_raw }}</p><p>Название: {{ row.label_raw }} · Сверка: {{ snapshot.source_match }}</p><p>Отчёт: {{ entry.report.report_id }} · Версия: {{ entry.report.revision_id }} · Транскрипция: {{ entry.report.interpretation_id }} · Строка: {{ row.row_id }}</p><p>Происхождение строки: {{ row.provenance|tojson }} · Поля: {{ row.field_provenance|tojson }} · Происхождение отчёта: {{ snapshot.provenance|tojson }} · Поля отчёта: {{ snapshot.field_provenance|tojson }}</p></details></td></tr>
 {% endfor %}</tbody></table></div>
 </section>
 {% endfor %}
@@ -25,3 +26,4 @@
 {% if history and history.draft_count %}<p class="muted"><a href="/labs">ещё {{ history.draft_count }} в черновиках</a></p>{% endif %}
 {% if unreadable_drafts %}<p class="muted">Не удалось прочитать черновики: {{ unreadable_drafts }}. Число неподтверждённых строк может быть неполным. <a href="/labs">К отчётам</a></p>{% endif %}
 {% endblock %}
+{% block scripts %}<script src="/static/labs.js" defer></script>{% endblock %}

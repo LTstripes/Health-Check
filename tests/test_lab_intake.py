@@ -613,7 +613,7 @@ def test_date_precision_never_inferred(value, precision):
 
 
 def _card(page: str, report_id: str) -> str:
-    return page.split(f'data-lab-report="{report_id}"', 1)[1].split("</article>", 1)[0]
+    return page.split(f'data-lab-report="{report_id}"', 1)[1].split("</tr>", 1)[0]
 
 
 def test_labs_list_labels_each_report_from_its_transcription(runtime):
@@ -639,27 +639,32 @@ def test_labs_list_labels_each_report_from_its_transcription(runtime):
         page = client.get("/labs").text
     assert "Лабораторный отчёт</h4>" not in page
     first = _card(page, accepted["report_id"])
-    assert "<h4>Synthetic report</h4>" in first
+    assert "<td>Synthetic report" in first
     assert 'data-lab-status="accepted"' in page and ">Принят</span>" in first
     assert "Synthetic Clinic" in first and "Synthetic Lab" in first
-    assert 'data-lab-date="result">2 января 2099 <span' in first
+    assert 'data-lab-date="result">2 янв 2099' in first
     assert "точность до дня" in first
-    assert "<dd data-lab-rows>3</dd>" in first and "принятая версия" in first
+    assert 'data-lab-rows>3</td>' in first and "принятая версия" in first
     second = _card(page, staging_item["report_id"])
-    assert "<h4>Synthetic panel B</h4>" in second
-    assert "Staging · ждёт подтверждения" in second and "черновик, не принят" in second
-    assert 'data-lab-date="printed">3 февраля 2099, 09:30 <span' in second
+    assert "<td>Synthetic panel B" in second
+    assert "Ждёт подтверждения" in second and "черновик, не принят" in second
+    assert 'data-lab-date="printed">3 фев 2099' in second
+    assert 'class="lab-flag">дата печати' in second
     assert "точность до минуты" in second
     assert "дата результата не указана" in second
-    assert "<dd data-lab-rows>2</dd>" in second
+    assert 'data-lab-rows>2</td>' in second
     review_href = f'href="/labs/review/{staging_item["interpretation_id"]}"'
     assert review_href + ">Проверить и подтвердить" in second
     third = _card(page, bare["report_id"])
-    assert "Название не указано" in third and "Клиника</dt><dd>Не указана" in third
+    assert "Название не указано" in third and "<td>Не указана" in third
     assert 'data-lab-date="none">Не указана' in third
     # Newest dated first; undated last.
-    assert page.index(staging_item["report_id"]) < page.index(accepted["report_id"])
-    assert page.index(accepted["report_id"]) < page.index(f'data-lab-report="{bare["report_id"]}"')
+    assert page.index(f'data-lab-report="{staging_item["report_id"]}"') < page.index(
+        f'data-lab-report="{accepted["report_id"]}"'
+    )
+    assert page.index(f'data-lab-report="{accepted["report_id"]}"') < page.index(
+        f'data-lab-report="{bare["report_id"]}"'
+    )
 
 
 def test_labs_list_flags_pending_correction_and_unreadable_draft(runtime):
@@ -689,9 +694,9 @@ def test_labs_list_flags_pending_correction_and_unreadable_draft(runtime):
     assert page.status_code == 200
     first = _card(page.text, accepted["report_id"])
     # The accepted version stays the basis; the newer draft is flagged, not merged.
-    assert "<h4>Synthetic report</h4>" in first
+    assert "<td>Synthetic report" in first
     assert "Есть непринятый черновик «Synthetic report v2»" in first
     assert f'/labs/review/{newer["interpretation_id"]}' in first
     second = _card(page.text, broken["report_id"])
     assert "черновик не читается" in second and "artifact_corrupt" in second
-    assert "<dd data-lab-rows>Неизвестно</dd>" in second
+    assert 'data-lab-rows>Неизвестно</td>' in second

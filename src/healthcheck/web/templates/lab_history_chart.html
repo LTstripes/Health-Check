@@ -1,0 +1,15 @@
+<figure class="lab-history-chart" data-lab-chart aria-label="{{ history.name }}: числовые результаты по датам">
+<figcaption>Числовые результаты · {{ chart.unit if chart.unit is not none else 'единица не указана' }} · {{ chart.start.year }}{% if chart.start.year != chart.end.year %} — {{ chart.end.year }}{% endif %}</figcaption>
+<div class="lab-chart-frame">
+<div class="lab-chart-y">{% for tick in chart.ticks %}<span style="--lab-y:{{ tick.y }}%">{{ tick.value|owner_number(100) }}</span>{% endfor %}</div>
+<div class="lab-chart-plot">
+{% for point in chart.points %}{% set entry = point.entry %}
+{% set label %}{{ entry.date.value|owner_date }}{{ ' · дата печати' if entry.date_kind == 'printed' else '' }} · {{ entry.row|owner_lab_result }} {{ chart.unit if chart.unit is not none else 'единица не указана' }} · {{ entry.report.snapshot.performing_lab or entry.report.snapshot.clinic_source or 'Лаборатория не указана' }}{% endset %}
+<a href="#lab-history-row-{{ point.index }}" class="lab-chart-point{{ ' lab-chart-boundary' if point.boundary else '' }}" style="--lab-x:{{ point.x }}%;--lab-y:{{ point.y }}%" aria-label="{{ label }}" data-lab-point="{{ label }}"><span aria-hidden="true"></span></a>
+{% endfor %}
+</div>
+<div class="lab-chart-x"><span>{{ chart.start|owner_short_date }}</span><span>{{ chart.end|owner_short_date }}</span></div>
+</div>
+<p class="lab-small" data-lab-chart-value aria-live="polite">Выбери точку: наведи указатель или перейди к ней клавишей Tab. Ссылка откроет строку таблицы.</p>
+<p class="muted lab-small">Точки — результаты из отчётов. Между датами значения не восстанавливаются; референсы не нанесены.{% if chart.has_boundaries %} Полая точка — граница результата со знаком сравнения из отчёта, а не точное измерение.{% endif %}{% if chart.omitted %} Без даты или числового значения: {{ chart.omitted }}; эти результаты остаются в таблице.{% endif %}</p>
+</figure>
