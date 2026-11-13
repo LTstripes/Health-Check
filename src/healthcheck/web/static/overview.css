@@ -137,3 +137,25 @@
 .overview-secondary [data-overview-steps] > .overview-source { margin: 0; }
 .overview-secondary .overview-hrv > p { margin: 4px 0; font-size: .8125rem; color: var(--muted); }
 .overview-secondary .overview-qualifier { margin: 4px 0; }
+
+/* T5: two semantic bands, retaining the existing cards and figures. */
+.overview-secondary.overview-band { grid-template-columns: 1.4fr repeat(3, minmax(0, 1fr)); gap: 0; padding: 0; margin: 14px 0; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+.overview-band-title { grid-column: 1 / -1; margin: 0; padding: 10px 14px; font-size: .875rem; color: var(--muted); border-bottom: 1px solid var(--line); }
+.overview-band article { border: 0; border-radius: 0; background: transparent; min-width: 0; }
+.overview-band article + article { border-left: 1px solid var(--line); }
+.overview-band .overview-value { font-size: 2rem; }
+.overview-band [data-overview-period-sleep] .overview-value { font-size: 3rem; }
+.overview-band [data-overview-rhr], .overview-band [data-overview-steps] { display: flex; flex-wrap: wrap; gap: 0 12px; }
+.overview-band [data-overview-steps] > h3, .overview-band [data-overview-steps] > .overview-source { flex-basis: 100%; }
+.overview-band [data-rhr-provider], .overview-band [data-steps-provider] { flex: 1 1 100px; min-width: 0; }
+.overview-secondary [data-overview-rhr] strong, .overview-secondary [data-overview-steps] strong, .overview-secondary [data-bb-window] > strong, .overview-secondary [data-overview-stress] > strong { font-size: 2rem; line-height: 1.1; overflow-wrap: normal; }
+.overview-band progress { width: 100%; height: 8px; accent-color: var(--series-1); }
+.overview-band .overview-info[open] > div { width: min(26rem, 70vw); }
+.overview-band article:first-of-type .overview-info[open] > div { left: 0; right: auto; }
+.brief-period { display: flex; align-items: center; gap: 4px; cursor: auto; }
+.brief-period .overview-info[open] > div { left: 0; right: auto; }
+.overview-comparison { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; margin-top: 14px; }
+.overview-comparison h2 { width: 100%; margin: 0; font-size: 1rem; }
+.overview-comparison div { display: grid; gap: 3px; flex: 1 1 190px; }
+.overview-comparison small { color: var(--muted); font-size: .75rem; }
+@media (max-width: 1279px) { .overview-secondary.overview-band { grid-template-columns: repeat(2, minmax(0, 1fr)); } .overview-band article:nth-of-type(3) { border-left: 0; } .overview-band article:nth-of-type(n+3) { border-top: 1px solid var(--line); } }

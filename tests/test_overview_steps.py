@@ -42,15 +42,18 @@ def assert_steps_html(html):
 
 
 def assert_steps_elements(document):
-    secondary = document.one("section", classes={"overview-secondary"})
-    columns = [child for child in secondary.children if getattr(child, "tag", None) == "article"]
-    assert len(columns) == 4
-    for column, marker in zip(columns, ["data-overview-rhr", "data-overview-steps",
-                                       "data-overview-stress", "data-overview-body-battery"]):
+    bands = document.find("section", classes={"overview-secondary", "overview-band"})
+    assert len(bands) == 2
+    recovery, activity = ([child for child in band.children
+                           if getattr(child, "tag", None) == "article"] for band in bands)
+    assert len(recovery) == len(activity) == 4
+    for column, marker in zip(recovery, ["data-overview-period-sleep", "data-overview-body-battery",
+                                        "data-overview-rhr", "data-overview-stress"]):
         column.one(**{marker: None})
-    stress = columns[2].one(**{"data-overview-stress": None})
-    hrv = columns[2].one(**{"data-overview-hrv": None})
-    assert columns[2].children.index(stress) < columns[2].children.index(hrv)
+    activity[0].one(**{"data-overview-steps": None})
+    stress = recovery[3].one(**{"data-overview-stress": None})
+    hrv = recovery[3].one(**{"data-overview-hrv": None})
+    assert recovery[3].children.index(stress) < recovery[3].children.index(hrv)
     steps = document.one(**{"data-overview-steps": None})
     assert len(steps.find(**{"data-steps-reason": ""})) == 2
     # Independent synthetic arithmetic: (0+10)/2=5; (0+20+40)/3=20.
@@ -64,7 +67,7 @@ def assert_steps_elements(document):
         paragraphs = [p.text.strip() for p in disclosure.find("p")]
         assert f"Дней со значением: {count} из 7." in paragraphs
         assert "Период: 1 января 2099 - 7 января 2099." in paragraphs
-    return columns
+    return recovery
 
 
 def read(database, source_id, *, start=date(2099, 1, 1), end=date(2099, 1, 8), preset=None):
@@ -178,13 +181,15 @@ def test_actual_route_shared_dates_and_four_columns_hrv_under_stress(database, m
     overview = response.context["overview"]
     assert overview["steps"]["window"] == overview["completed_window"]
     columns = assert_steps_html(response.text)
-    assert "последнее среднее за неделю" in columns[2].text
+    assert "последнее среднее за неделю" in columns[3].text
     if capture_dir := os.environ.get("HC535_CAPTURE_DIR"):
         path = Path(capture_dir)
         path.mkdir(parents=True, exist_ok=True)
         (path / "overview-steps.html").write_text(response.text, encoding="utf-8")
-    harmless = response.text.replace('class="overview-secondary"',
-                                     'data-extra="ok" class="extra overview-secondary"')
+    harmless = response.text.replace(
+        'class="overview-secondary overview-band"',
+        'data-extra="ok" class="extra overview-secondary overview-band"',
+    )
     harmless = harmless.replace('data-steps-provider="Garmin" data-steps-reason=""',
                                 'data-steps-reason="" class="extra" data-steps-provider="Garmin"')
     assert_steps_html(harmless)

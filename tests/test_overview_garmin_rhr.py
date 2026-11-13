@@ -323,7 +323,8 @@ def test_rhr_display_keeps_source_warning_packet_and_hash(
     assert response.status_code == 200
     cell = response.context["overview"]["garmin"][RHR]
     assert cell["value"] == 52 and cell["state"] == "partial"
-    secondary = response.text.split('class="overview-secondary"', 1)[1].split("</section>", 1)[0]
+    secondary = response.text.split('class="overview-secondary overview-band"', 1)[1]
+    secondary = secondary.split("</section>", 1)[0]
     assert "52 уд/мин" in secondary
     assert f"Garmin: {notice}" in response.text
     assert "Сохранённая история не подтверждает свежесть" in response.text

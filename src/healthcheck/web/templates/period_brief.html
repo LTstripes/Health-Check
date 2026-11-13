@@ -37,7 +37,8 @@
 
 <section class="brief-controls" aria-labelledby="brief-period-heading">
   <h2 id="brief-period-heading" class="visually-hidden">Выбранный период</h2>
-  <p class="brief-period" tabindex="0" aria-describedby="overview-period-scope">{{ brief.period.start_date | owner_date }} → {{ brief.period.end_date | owner_date }} <span class="muted">({{ brief.period.calendar_days }} {{ brief.period.calendar_days|owner_plural("день", "дня", "дней") }})</span><span class="overview-period-tooltip" id="overview-period-scope" role="tooltip"><span>Вес и активности: {{ brief.period.start_date | owner_date }} — {{ brief.period.end_date | owner_date }}.</span><span>Сон, шаги, стресс и Body Battery: {% if overview.completed_window.empty %}в выбранном периоде нет завершённых дней по МСК{% else %}{{ overview.completed_window.start_date | owner_date }} — {{ overview.completed_window.end_date | owner_date }} · завершённые дни, МСК{% endif %}.</span></span></p>
+  <div class="brief-period">{{ brief.period.start_date | owner_date }} — {{ brief.period.end_date | owner_date }} · {{ overview.completed_window.calendar_days }} {{ overview.completed_window.calendar_days|owner_plural("завершённый день", "завершённых дня", "завершённых дней") }}
+  <details class="overview-info"><summary aria-label="Как читать период">ⓘ</summary><div><p>Вес и активности: {{ brief.period.start_date | owner_date }} — {{ brief.period.end_date | owner_date }}.</p><p>Сон, шаги, стресс и Body Battery: {% if overview.completed_window.empty %}в выбранном периоде нет завершённых дней по МСК{% else %}{{ overview.completed_window.start_date | owner_date }} — {{ overview.completed_window.end_date | owner_date }} · завершённые дни, МСК{% endif %}.</p></div></details></div>
   <div class="preset-links" aria-label="Быстрый выбор периода">
     {% for days in (7, 30, 90) %}
     <a class="button-link{% if selected_preset == days|string %} selected{% endif %}"{% if selected_preset == days|string %} aria-current="true"{% endif %} href="/brief?preset={{ days }}{% if overview.rhr.google_source_id %}&amp;google_rhr_source_id={{ overview.rhr.google_source_id }}{% endif %}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">{{ days }} {{ days|owner_plural("день", "дня", "дней") }}</a>
@@ -82,7 +83,7 @@
 
 
 {% if source_actions %}
-<section class="brief-source-attention" aria-label="Источники требуют внимания">
+<section class="brief-source-attention alert" aria-label="Источники требуют внимания">
   <details class="owner-details brief-source-disclosure">
     <summary>{% for action in source_actions %}{{ action.short_text }}{% if action.contexts %} ({{ action.contexts | join('; ') }}){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}<span class="brief-source-more"> · Подробности</span></summary>
     <div class="brief-source-instructions">
@@ -106,9 +107,17 @@
 </section>
 {% endif %}
 
-{% include 'overview_primary.html' %}
+
 
 {% include 'overview_values.html' %}
+{% if overview.comparison is defined and overview.comparison and overview.comparison.get('items') %}
+<section class="overview-comparison" aria-label="Что изменилось"><h2>Что изменилось</h2>
+{% for item in overview.comparison['items'] %}
+<div data-comparison-metric="{{ item.metric }}" data-comparison-provider="{{ item.provider }}"><strong>{{ {'sleep_duration':'Сон', 'stress':'Стресс', 'body_battery':'Body Battery', 'resting_heart_rate':'Пульс в покое', 'steps':'Шаги', 'daily_calories_garmin_estimate':'Калории · оценка', 'intensity_minutes':'Минуты интенсивности'}.get(item.metric, item.metric) }} · {{ 'Garmin' if item.provider == 'garmin' else 'Google' }}</strong>
+<span>{% if item.difference is not none %}{{ '+' if item.difference > 0 else ('−' if item.difference < 0 else '') }}{{ overview_number(item.difference|abs) }} {{ {'seconds':'с', 'points':'из 100', 'bpm':'уд/мин', 'steps':'шагов', 'kcal':'ккал', 'min':'мин'}.get(item.unit, item.unit) }}{% elif item.reason == 'low_coverage_current' %}Мало данных в текущем периоде{% elif item.reason == 'low_coverage_previous' %}Мало данных в прошлом периоде{% else %}Недостаточно данных{% endif %}</span>
+<small>Текущий: {{ item.current.coverage.count if item.current.coverage.count is not none else '—' }} из {{ item.current.coverage.days }} · {{ item.current.window.start_date|owner_date }} — {{ item.current.window.end_date|owner_date }}<br>Предыдущий: {{ item.previous.coverage.count if item.previous.coverage.count is not none else '—' }} из {{ item.previous.coverage.days }} · {{ item.previous.window.start_date|owner_date }} — {{ item.previous.window.end_date|owner_date }}</small></div>
+{% endfor %}</section>{% endif %}
+
 
 <div class="brief-grid">
   {% if notable_changes %}<section class="card brief-priority" aria-labelledby="brief-notable-heading">

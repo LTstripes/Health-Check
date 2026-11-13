@@ -105,7 +105,7 @@ def test_period_brief_page_defaults_to_bounded_local_period_and_exposes_nav(
 
     assert page.status_code == 200
     assert "Обзор за период" in page.text
-    assert f"{owner_date(start)} → {owner_date(end)}" in page.text
+    assert f"{owner_date(start)} — {owner_date(end)}" in page.text
     assert 'href="/brief"' in home.text
     assert "Источник Garmin не сохранён" in page.text
     assert '<select name="garmin_source_id">' not in page.text
@@ -429,7 +429,7 @@ def test_period_brief_page_supports_presets_and_custom_period(tmp_path, complete
             start = end - timedelta(days=days - 1)
             response = client.get("/brief", params={"preset": str(days)})
             assert response.status_code == 200
-            assert f"{owner_date(start)} → {owner_date(end)}" in response.text
+            assert f"{owner_date(start)} — {owner_date(end)}" in response.text
             assert f'name="start_date" value="{start.isoformat()}"' in response.text
             assert f'name="end_date" value="{end.isoformat()}"' in response.text
 
@@ -439,8 +439,8 @@ def test_period_brief_page_supports_presets_and_custom_period(tmp_path, complete
         )
 
     assert custom.status_code == 200
-    assert "3 февраля 2099 → 17 февраля 2099" in custom.text
-    assert "15 дней" in custom.text
+    assert "3 февраля 2099 — 17 февраля 2099" in custom.text
+    assert "0 завершённых дней" in custom.text
 
 
 def test_period_brief_page_rejects_invalid_period_controls(tmp_path):
@@ -1246,7 +1246,7 @@ def test_a_plus_real_services_keep_packets_ewma_dates_and_zero(tmp_path, complet
 
         sleep_card = parse_overview(later.text).one("div", **{"data-overview-period-sleep": None})
         assert not sleep_card.find("a")
-        assert "7 или 30 завершённых дней" in sleep_card.text
+        assert "Недоступно для периода в 9 дней" in sleep_card.text
         assert later.context["overview"]["completed_window"]["calendar_days"] == 9
         css = client.get('/static/overview.css').text
         assert '.overview-trend { stroke: var(--series-2)' in css
@@ -1376,9 +1376,9 @@ def test_source_notice_visibility_and_disclosure_preserve_packet(
     assert result == before
     assert response.context["packet"] == before["packet"]
     assert response.context["brief"]["source_result_hash"] == "synthetic-result-hash"
-    assert ('class="brief-source-attention"' in response.text) == bool(short)
+    assert ('class="brief-source-attention alert"' in response.text) == bool(short)
     if short:
-        notice = response.text.split('class="brief-source-attention"', 1)[1]
+        notice = response.text.split('class="brief-source-attention alert"', 1)[1]
         notice = notice.split("</section>", 1)[0]
         summary = notice.split("<summary>", 1)[1].split("</summary>", 1)[0]
         assert f"Garmin: {short}" in summary and context in summary
@@ -1386,8 +1386,8 @@ def test_source_notice_visibility_and_disclosure_preserve_packet(
         assert 'href="/imports#data-status">Данные →</a>' in notice
         assert "Сохранённая история не подтверждает свежесть" in notice
         assert notice.index("</summary>") < notice.index("сбора")
-        assert response.text.index('class="brief-source-attention"') < response.text.index(
-            'class="brief-overview"'
+        assert response.text.index('class="brief-source-attention alert"') < response.text.index(
+            'class="overview-secondary overview-band"'
         )
     elif context:
         assert 'class="owner-details brief-limitations"' not in response.text
@@ -1410,7 +1410,7 @@ def test_mixed_sources_keep_distinct_errors_and_pending_action_once(tmp_path, mo
         response = client.get("/brief?start_date=2099-01-01&end_date=2099-01-07")
     assert result == before
     primary = response.text.split("Технические детали", 1)[0]
-    assert primary.count('class="brief-source-attention"') == 1
+    assert primary.count('class="brief-source-attention alert"') == 1
     summary = primary.split("<summary>Garmin:", 1)[1].split("</summary>", 1)[0]
     assert "Garmin: нужен повторный вход" in primary
     assert "Google: ошибка обновления" in summary
@@ -1466,7 +1466,8 @@ def test_selected_garmin_missing_rhr_hrv_remains_source_and_date_specific(tmp_pa
         assert cell["date"] == ("2099-01-02" if mode == "incompatible" else None)
         if code == "hrv_weekly_average_ms":
             assert cell["note"] in response.text
-    secondary = response.text.split('class="overview-secondary"', 1)[1].split("</section>", 1)[0]
+    secondary = response.text.split('class="overview-secondary overview-band"', 1)[1]
+    secondary = secondary.split("</section>", 1)[0]
     assert "52 уд/мин" not in secondary and "60,12 мс" not in secondary
     assert "42,5 мс" not in secondary and "55 уд/мин" not in secondary
     assert "HRV Garmin · последнее среднее за неделю" in secondary
