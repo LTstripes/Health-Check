@@ -332,12 +332,15 @@ def test_six_month_history_dashboard_smoke(tmp_path):
         assert page.status_code == 200
         assert "data-series" in html or "weight-chart" in html
         assert "Theil–Sen" in html or "Theil" in html
-        assert "76.0" in html or "76" in html
+        assert "Настроенная цель" not in html
         assert "Текущий подтверждённый вес" in html
-        assert "Изменение за последнее время" in html
+        assert "Изменение за 90 дней" in html
         assert "Покрытие и свежесть" in html
         assert "Состав тела во времени" in html
-        assert "Оценки жира и сухой массы" in html
+        assert (
+            "Жир и масса без жира — расчёт Health-Check из веса и процента жира одного измерения."
+            in html
+        )
         assert "Мышцы источника" in html
         assert "Потребительский биоимпеданс" in html
         # Exact backend wording stays in technical JSON, not primary copy.
@@ -1621,12 +1624,11 @@ def test_weight_page_is_russian_owner_first_with_technical_disclosure(tmp_path):
         # Owner-first Russian primary surface.
         for snippet in (
             "Текущий подтверждённый вес",
-            "Текущий вес и цель",
+            "Последнее измерение",
             "Ряд веса",
-            "Подтверждённый вес (источник)",
-            "Тренд 21 день (расчёт Health-Check)",
-            "Настроенная цель",
-            "Изменение за последнее время",
+            "Подтверждённый вес · весы",
+            "Тренд 21 день · расчёт Health-Check",
+            "Изменение за 90 дней",
             "Покрытие и свежесть",
             "Состав тела во времени",
             "Как изменился состав тела при похожем весе",
@@ -1672,10 +1674,10 @@ def test_weight_empty_states_use_frozen_chips_and_no_zero(tmp_path):
         assert 'data-owner-state="unavailable"' in primary
         assert "Это не означает ноль" in primary
         assert "Нет подтверждённых измерений" in primary
-        assert "Не настроена" in primary
+        assert "Не настроена" not in primary
         assert "Нет кандидатов на проверке" not in primary
         assert "Проверка импорта" not in primary
-        assert "Настройки и контекст" in primary
+        assert "Настройки и контекст" not in primary
         assert "Как изменился состав тела при похожем весе" not in primary
         assert "0 кг" not in primary
         assert "<dd>0</dd>" not in primary
@@ -1696,7 +1698,7 @@ def test_weight_browser_contract_uses_frozen_surfaces(tmp_path):
         assert 'aria-label="График веса"' in html
         assert 'id="trend-status"' in html
         # Legend uses frozen 8px squares (CSS) and Russian labels (HTML).
-        assert "Подтверждённый вес (источник)" in html
+        assert "Подтверждённый вес · весы" in html
         assert ".swatch" in css and "width: 8px" in css
         # Tables keep real layout inside dedicated scroller (JS creates wrapper).
         assert "table-scroll" in js
@@ -1711,7 +1713,7 @@ def test_weight_browser_contract_uses_frozen_surfaces(tmp_path):
         assert "#6b4ea2" not in js
         # Owner-facing JS copy is Russian; exact reason codes stay in JSON only.
         assert "Тренд доступен" in js or "Тренд недоступен" in js
-        assert "кг/нед." in js
+        assert "кг в неделю" in js
         assert "Покрытие" not in js or "Даты наблюдений" in js
         assert "Trend algorithm" not in js
         assert "kg/week" not in js
@@ -1745,7 +1747,7 @@ def test_weight_v2_hierarchy_goal_and_pending_action(tmp_path):
     ) as client:
         empty = client.get("/weight").text
         primary, technical = empty.split('<details class="card owner-details', 1)
-        assert "Настройки и контекст" in primary
+        assert "Настройки и контекст" not in primary
         assert "Проверка импорта" not in primary
         assert 'class="bia-banner"' not in empty
         assert 'class="algorithm-banner"' not in empty
@@ -1794,9 +1796,40 @@ def test_weight_v2_exposes_exact_same_session_composition_evidence(tmp_path, bod
         assert point["metric_origins"]["estimated_lean_mass_kg"] == "healthcheck-derived"
         assert point["metric_origins"]["source_muscle_mass_kg"] == "source-provider"
         html = client.get("/weight").text
-        assert "76 кг" in html
+        primary = html.split('<details class="card owner-details', 1)[0]
+        assert "76 кг" not in primary  # Goal is deliberately absent on T11.
+        assert "80 кг" in primary
+        assert "45 кг" in primary
+        assert ("25 %" if body_fat_pct else "0 %") in primary
+        assert ("20 кг" if body_fat_pct else "<dd>—</dd>") in primary
         assert "Настройка цели появится" not in html
         assert "Мышцы источника — отдельная оценка, а не остаток веса" in html
+
+
+def test_weight_header_never_borrows_composition_by_date(tmp_path, monkeypatch):
+    from healthcheck.web.query import WeightQueryService, empty_dashboard_payload
+
+    packet = empty_dashboard_payload(reason="no_data")
+    packet["current"].update(
+        available=True, value_kg=80.0, observed_date="2026-11-08", evidence_id="latest-weight"
+    )
+    packet["series"]["composition_by_group"] = {
+        "synthetic-method": [{
+            "weight_measurement_id": "different-weight", "observed_date": "2026-11-08",
+            "body_fat_pct": 25.0, "estimated_fat_mass_kg": 20.0,
+            "estimated_lean_mass_kg": 60.0, "source_muscle_mass_kg": 45.0,
+        }]
+    }
+    monkeypatch.setattr(WeightQueryService, "dashboard", lambda self: packet)
+    app, _settings, _paths = _ui(tmp_path)
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        html = client.get("/weight").text
+        header = html.split('<section class="hero"', 1)[1].split('</section>', 1)[0]
+        assert "80 кг" in header
+        assert "Нет состава тела для последнего измерения. Это не означает ноль." in header
+        assert "25 %" not in header
+        assert "20 кг" not in header
+        assert "45 кг" not in header
 
 
 def test_weight_full_history_keeps_same_date_identities_and_current_correction(tmp_path):

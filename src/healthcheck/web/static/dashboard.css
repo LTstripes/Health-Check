@@ -433,9 +433,28 @@ main, .legal { max-width: var(--owner-content-width); }
 
 /* Scoped to the Weight surface; shared Owner shell and sibling pages stay intact. */
 .weight-view .hero { display: block; }
-.weight-view .current { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+.weight-view > .card, .weight-view > .hero { padding: 16px; margin-bottom: 12px; }
+.weight-view .weight-headline { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1.8fr); gap: 24px; }
+.weight-view .weight-headline article { min-width: 0; }
+.weight-view h2 { font-size: 1rem; }
+.weight-view .current { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.weight-view .current dd { font-size: 3rem; }
+.weight-view .current dt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.weight-view .weight-rate-value { font: 300 2rem/1.2 var(--owner-heading-font); font-variant-numeric: tabular-nums; margin: 8px 0; }
+.weight-view .weight-rate-value span { display: block; font: 400 .875rem/1.5 var(--owner-sans); }
+.weight-view .weight-headline p { font-size: .8125rem; margin: 8px 0; }
+.weight-view .weight-chart-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.weight-view .weight-window { display: flex; flex-wrap: wrap; gap: 4px; }
+.weight-view button { min-height: 44px; }
+.weight-view .weight-window button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.weight-view .weight-info { position: relative; }
+.weight-view .weight-info > summary { font-size: .8125rem; font-weight: 400; }
+.weight-view .weight-info > p { margin: 0 0 12px; color: var(--muted); font-size: .875rem; }
+.weight-view .weight-pending { margin: 12px 0 0; }
 .weight-view .current dd .muted { display: block; font: 400 0.875rem/1.5 var(--owner-sans); }
 .weight-view .chart { min-height: 0; }
+.weight-view .legend { font-size: .8125rem; gap: 8px 16px; margin: 8px 0; }
+.weight-view #weight-chart-period { margin: 8px 0; font-size: .8125rem; }
 .weight-view .chart svg { display: block; width: 100%; min-width: 260px; height: auto; }
 .weight-view .weight-axis { fill: var(--muted); font: 13px "Segoe UI", sans-serif; }
 .weight-view .weight-point { cursor: pointer; outline: none; }
@@ -443,24 +462,32 @@ main, .legal { max-width: var(--owner-content-width); }
 .weight-view .weight-point:hover .weight-dot,
 .weight-view .weight-point:focus .weight-dot { stroke: var(--accent); stroke-width: 4px; }
 .weight-view .weight-observation { padding: 12px; margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); }
-.weight-view .weight-observation p { margin: 4px 0 12px; }
-.weight-view .weight-composition-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin: 0; }
-.weight-view .weight-composition-values dt { color: var(--muted); font-size: 0.875rem; }
-.weight-view .weight-composition-values dd { margin: 0; font-variant-numeric: tabular-nums; }
+.weight-view .weight-observation p { margin: 4px 0; }
+.weight-view .weight-observation h3 { margin: 0; font-size: .875rem; }
+.weight-view .weight-composition-values { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 12px; margin: 0; }
+.weight-view .weight-composition-values dt { color: var(--muted); font-size: .75rem; }
+.weight-view .weight-composition-values dd { margin: 0; font-size: 1.125rem; font-variant-numeric: tabular-nums; }
+.weight-view .weight-latest-composition > div { display: flex; flex-direction: column-reverse; }
 .weight-view summary { cursor: pointer; min-height: 44px; padding: 10px 0; font-weight: 600; }
 .weight-view label { display: block; margin: 8px 0; }
 .weight-view select { max-width: 100%; min-height: 44px; }
 .weight-view .table-scroll table { min-width: 620px; }
 .weight-view .weight-history-table table { min-width: 840px; table-layout: fixed; }
 .weight-view .weight-history-table th, .weight-view .weight-history-table td { vertical-align: top; font-variant-numeric: tabular-nums; }
+.weight-view .weight-history-table th:not(:first-child):not(:last-child),
+.weight-view .weight-history-table td:not(:first-child):not(:last-child) { text-align: right; }
 .weight-view .weight-history-table th:first-child { width: 120px; }
 .weight-view .weight-history-table th:last-child { width: 240px; }
 .weight-view .weight-history-table caption { text-align: left; color: var(--muted); padding: 12px 0; }
 .weight-view .weight-history-table summary { padding-top: 0; font-size: .875rem; }
 .weight-view .weight-history-table pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; max-height: 20rem; overflow: auto; }
-.weight-view .weight-method-legend { list-style: none; padding: 0; display: grid; gap: 8px; font-size: .875rem; }
+.weight-view .weight-method-legend { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: .8125rem; margin: 8px 0; }
 .weight-view .weight-method-swatch { background: var(--method-color); }
+@media (max-width: 1279px) {
+  .weight-view .weight-latest-composition { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 480px) {
+  .weight-view .weight-headline { grid-template-columns: minmax(0, 1fr); }
   .weight-view .current, .weight-view .weight-composition-values { grid-template-columns: minmax(0, 1fr); }
 }
 
