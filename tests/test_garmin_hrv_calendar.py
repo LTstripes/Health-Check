@@ -31,6 +31,7 @@ from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.garmin.sync import PRODUCTION_SYNC_SURFACES, _collection_scope
 from healthcheck.garmin.sync import _prepare_normalization_result as prepare
 from healthcheck.runtime import prepare_runtime
+from test_garmin_normalization import legacy_daily_normalization
 
 DAY = date(2099, 1, 2)
 RECEIPT = datetime(2099, 2, 1, tzinfo=UTC)
@@ -233,6 +234,129 @@ def test_production_identity_separates_days_sources_and_value_corrections():
         source_identity=identity(),
     )
     assert other.contract_version == NORMALIZATION_CONTRACT_VERSION
+
+
+def test_old_shape_reprocess_and_refresh_keep_one_record_per_surface_day(saved, monkeypatch):
+    def forbidden_fetch(*args, **kwargs):
+        pytest.fail("offline shape cleanup attempted provider/session access")
+
+    monkeypatch.setattr("healthcheck.garmin.auth.GarminAuthService.load_existing", forbidden_fetch)
+    source = identity()
+    summary_surface = next(s for s in PRODUCTION_SYNC_SURFACES if s.code == "daily_summary")
+    cases = []
+    for offset in range(2):
+        day = DAY + timedelta(days=offset)
+        cases.extend([
+            (SURFACE, day, payload(day, value=0 if offset == 0 else 31)),
+            (summary_surface, day, {
+                "calendarDate": day.isoformat(), "restingHeartRate": 52,
+                "maxMetrics": {"vo2MaxRunning": 44.2}, "trainingReadiness": 70,
+                "trainingStatus": "productive", "totalKilocalories": 2000,
+                "activeKilocalories": 0, "bmrKilocalories": None,
+                "moderateIntensityMinutes": 10, "vigorousIntensityMinutes": 0,
+                "intensityMinutesGoal": 150,
+            }),
+        ])
+
+    def ingest(surface, day, body, *, old, at):
+        result = (legacy_daily_normalization(body, monkeypatch, source_identity=source)
+                  if old else normalize(body, source))
+        version = result.contract_version
+        result = prepare(surface, body, result, day=day)
+        if old:
+            # prepare stamps today's HRV version; preserve the historical receipt.
+            result = replace(result, contract_version=version)
+        with saved[1]() as session:
+            outcome = GarminPersistenceRepository(session, payload_store=saved[2]).persist_result(
+                result, payload=body, source_identity=source, stream_code="daily_health",
+                source_filename=f"{surface.code}.json", received_at=at,
+                source_window_start_utc=datetime.combine(day, datetime.min.time(), UTC),
+                source_window_end_utc=datetime.combine(
+                    day + timedelta(days=1), datetime.min.time(), UTC,
+                ),
+                collection_scope=_collection_scope(
+                    surface, day=day, window_start=day, window_end=day,
+                    fetch_complete=True, coverage_status="present",
+                ),
+            )
+            row = outcome.records[0]
+            snapshot = (row.id, row.idempotency_key, row.raw_payload_id, row.record_status)
+            session.commit()
+            return snapshot
+
+    expected = {}
+    for surface, day, body in cases:
+        expected[(surface.code, day)] = ingest(surface, day, body, old=True, at=RECEIPT)
+    before = originals(saved)
+    files = {p: p.read_bytes() for p in saved[2].artifacts_root.rglob("*.json")}
+    with saved[1]() as session:
+        rows = list(session.scalars(select(GarminSourceRecord)))
+        assert len(rows) == 4 and all(row.record_status == "partial" for row in rows)
+        for row in rows:
+            metrics = list(session.scalars(select(GarminRecordMetric).where(
+                GarminRecordMetric.record_id == row.id,
+            )))
+            assert len(metrics) == 11
+
+    planned = run_garmin_reprocess(
+        saved[0], start=DAY, end=DAY + timedelta(days=1),
+        streams=["hrv_status", "daily_summary"], dry_run=True,
+    )
+    assert planned.observation_count == 4 and planned.processed_count == 0
+    assert originals(saved) == before
+    replay = run_garmin_reprocess(
+        saved[0], start=DAY, end=DAY + timedelta(days=1), streams=["hrv_status", "daily_summary"],
+    )
+    assert replay.status == "succeeded" and replay.processed_count == 4
+    assert replay.inserted_count == replay.retired_count == replay.remaining_observation_count == 0
+    assert replay.updated_count == 4
+    assert replay.as_dict()["reprocess"]["provider_requests"] == 0
+    with saved[1]() as session:
+        rows = list(session.scalars(select(GarminSourceRecord)))
+        assert len(rows) == len(expected)
+        assert {(row.surface_code, row.source_local_date) for row in rows} == set(expected)
+        for row in rows:
+            old = expected[(row.surface_code, row.source_local_date)]
+            assert (row.id, row.idempotency_key, row.raw_payload_id) == old[:3]
+            assert row.projection_status == "current"
+            metrics = list(session.scalars(select(GarminRecordMetric).where(
+                GarminRecordMetric.record_id == row.id,
+            )))
+            if row.surface_code == "hrv_status":
+                assert row.normalization_contract_version == HRV_CALENDAR_CONTRACT_VERSION
+                assert row.record_status == old[3] == "partial"
+                assert len(metrics) == 5
+                assert not any(m.capability_code in {"daily_energy", "intensity_minutes"}
+                               for m in metrics)
+                hrv = next(m for m in metrics if m.metric_code == "hrv_weekly_average_ms")
+                assert hrv.state == "value"
+                assert hrv.value_number == (0 if row.source_local_date == DAY else 31)
+            else:
+                assert row.normalization_contract_version == NORMALIZATION_CONTRACT_VERSION
+                assert row.record_status == "ok"
+                assert len(metrics) == 10 and not any(m.capability_code == "hrv_status"
+                                                     for m in metrics)
+                active = next(m for m in metrics if m.metric_code == "daily_active_kcal")
+                bmr = next(m for m in metrics if m.metric_code == "daily_bmr_kcal")
+                assert active.state == "value" and active.value_number == 0
+                assert bmr.state == "null" and bmr.value_number is None
+    after = originals(saved)
+    for table, rows in before.items():
+        assert all(after[table][key] == value for key, value in rows.items())
+    assert after["sync_stream_state"] == before["sync_stream_state"]
+    again = run_garmin_reprocess(
+        saved[0], start=DAY, end=DAY + timedelta(days=1), streams=["hrv_status", "daily_summary"],
+    )
+    assert again.processed_count == 0 and again.remaining_observation_count == 0
+    assert originals(saved) == after
+    # Re-fetching identical bytes with a later acquisition time updates the same rows.
+    for surface, day, body in cases:
+        refreshed = ingest(surface, day, body, old=False, at=RECEIPT + timedelta(days=1))
+        assert refreshed[:3] == expected[(surface.code, day)][:3]
+    with saved[1]() as session:
+        rows = list(session.scalars(select(GarminSourceRecord)))
+        assert len(rows) == 4 and all(row.projection_status == "current" for row in rows)
+    assert all(p.read_bytes() == content for p, content in files.items())
 
 
 def test_legacy_days_restore_without_loss_and_exact_replay_converges(saved, monkeypatch):

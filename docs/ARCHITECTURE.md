@@ -452,6 +452,14 @@ null/invalid/zero.
 | Garmin Intensity Minutes (#541) | `daily_moderate_intensity_min` ← `$.moderateIntensityMinutes`, `daily_vigorous_intensity_min` ← `$.vigorousIntensityMinutes`, `intensity_minutes_goal` ← `$.intensityMinutesGoal`; daily_health only, unit `min`. Independent finite nonnegative numbers including zero; absent/null/invalid unavailable. The goal is Garmin's weekly goal reported on that date, not a daily target. No filling or derived stored metrics. |
 | HRV | Strict agreeing `hrvSummary.calendarDate`; `hrv_weekly_average_ms` is weekly/trailing snapshot, not daily HRV. |
 
+Daily-health shape eligibility omits absent energy/Intensity Minutes placeholders when
+`hrvSummary` is present, and absent HRV placeholders otherwise. Explicit leaves in mixed or
+legacy alias payloads retain their value/null/invalid state and provenance; shared daily
+specs are unchanged. Normal record-status rules still apply: omitting an unrelated missing
+HRV placeholder can make an otherwise complete summary `ok`. Semantic and production
+reconciliation identities are unchanged; bounded offline replay updates the existing
+projection under the new general/HRV versions without a schema migration.
+
 No daily energy alias, subtraction, proration or fallback is permitted. Owner decision 2026-11-10 (#319):
 accept Garmin's `*Kilocalories` naming as kcal and present these daily values as
 «оценка Garmin», «по данным Garmin». This is a product decision, not independently proven units.
@@ -505,6 +513,7 @@ peaks/morning values/wear coverage.
 | `r02-garmin-normalization-contract-v1` | Compatibility gates | Legacy interpretation | No universal equivalence. |
 | `r02-garmin-normalization-contract-v3` | General normalizer | Daily Garmin energy estimates | Specialized versions retained; explicit offline replay for saved daily summaries. |
 | `r02-garmin-normalization-contract-v4` | General normalizer | Daily Garmin energy and Intensity Minutes | Specialized HRV/sleep/activity versions retained; explicit offline daily-summary replay. |
+| `r02-garmin-normalization-contract-v5` | General normalizer | Payload-shape metric eligibility | Absent HRV-only placeholders omitted from summaries; explicit fields and intraday semantics unchanged. |
 | `garmin-activity-normalization-v2` | Activity | Session-total calories | No active-kcal proof. |
 | `garmin-activity-quality-v1` | Quality overlay | Field conflicts/ranges | No physiology ceiling. |
 | `garmin-training-phase-a-probe-v1` | Training probe | Structural evidence | Association not producer. |
@@ -512,6 +521,7 @@ peaks/morning values/wear coverage.
 | `garmin-training-owner-view-v2` | Training UI | Saved evidence | No new calculation. |
 | `garmin-activity-session-owner-view-v2` | Activity UI | Exact saved session | No inferred end. |
 | `r02-garmin-hrv-calendar-normalization-v3` | HRV | Explicit civil date | No requested-day fallback. |
+| `r02-garmin-hrv-calendar-normalization-v4` | HRV | Same civil-date/current identity | Absent daily energy/intensity placeholders omitted; explicit mixed-payload fields retained. |
 | `r394-saved-body-battery-maxima-v1` | Body Battery | Saved maxima/mean | Not full-day peak. |
 | `r340-garmin-overview-rhr-v1` | Garmin RHR | Existing eligibility | No substitution. |
 | `r376-saved-rhr-read-v1` | Latest RHR | Date/age/exclusions | No relabelled date. |

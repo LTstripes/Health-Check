@@ -50,7 +50,7 @@
       {% for row in energy.rows %}<tr><th scope="row">{{ row.date|owner_short_date }}</th>{% for key in ['total', 'active', 'bmr'] %}<td>{{ row.display[key]|replace(' ', ' ') if row.display[key] is not none else 'нет данных' }}</td>{% endfor %}</tr>{% endfor %}
       </tbody></table>
     </div>
-    <p>Поля: $.totalKilocalories, $.activeKilocalories, $.bmrKilocalories. Текущий контракт r02-garmin-normalization-contract-v4.</p>
+    <p>Поля: $.totalKilocalories, $.activeKilocalories, $.bmrKilocalories. Текущий контракт r02-garmin-normalization-contract-v5.</p>
   </details>
 </section>
 {% endif %}
