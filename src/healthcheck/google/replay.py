@@ -32,6 +32,7 @@ from healthcheck.google.persistence import (
     GooglePersistenceOutcome,
     GooglePersistenceRepository,
 )
+from healthcheck.google.projection_storage import read_projection
 from healthcheck.google.steps import (
     ACQUISITION_CONTRACT,
     normalize_acquired_steps,
@@ -240,7 +241,7 @@ def _observation_record_names(
         if attempt.parse_status == "invalid":
             continue
         try:
-            projection = json.loads(attempt.projection_json)
+            projection = json.loads(read_projection(attempt))
         except (TypeError, json.JSONDecodeError):
             return None
         if not isinstance(projection, Mapping):

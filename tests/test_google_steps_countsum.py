@@ -41,6 +41,7 @@ from healthcheck.google.contracts import (
 )
 from healthcheck.google.normalization import normalize_google_payload
 from healthcheck.google.persistence import GooglePersistenceRepository
+from healthcheck.google.projection_storage import read_projection
 from healthcheck.google.replay import replay_google_observations
 from healthcheck.google.storage import ContentAddressedGooglePayloadStore
 from healthcheck.google.sync import PRODUCTION_SYNC_SURFACES, parse_google_streams
@@ -232,7 +233,7 @@ def test_exact_storage_readback_and_raw_civil_endpoints(database):
             )
             == "text"
         )
-        assert outcome.normalization_attempt.projection_json
+        assert read_projection(outcome.normalization_attempt)
         replay = replay_google_observations(
             session, payload_store=store, observation_ids=[outcome.observation.id]
         )[0]
@@ -287,7 +288,7 @@ def test_corrections_are_exact_and_missing_replaces_previous(database):
     old_attempts = []
     for epoch, value in enumerate(["999", "2", "0", None, MISSING, "1.5", str(INT64_MAX)]):
         repo, outcome = persist(database, payload(value), epoch=epoch)
-        old_attempts.append(outcome.normalization_attempt.projection_json)
+        old_attempts.append(read_projection(outcome.normalization_attempt))
         row_id = outcome.records[0].id
         count = repo.records.count_sum_for(row_id)
         assert count.state.value == (
@@ -302,7 +303,9 @@ def test_corrections_are_exact_and_missing_replaces_previous(database):
         assert count.value == (int(value) if count.state is GoogleMetricState.VALUE else None)
     _, session, _ = database
     assert len(set(session.scalars(select(GoogleSourceRecord.id)))) == 1
-    assert list(session.scalars(select(GoogleNormalizationAttempt.projection_json))) == old_attempts
+    assert [read_projection(row) for row in session.scalars(
+        select(GoogleNormalizationAttempt)
+    )] == old_attempts
     _, stale = persist(
         database,
         payload("100"),
@@ -480,7 +483,7 @@ def test_no_acquisition_or_implicit_family_enablement():
 
 def test_populated_upgrade_preserves_rows_children_indexes_and_immutability(tmp_path):
     paths = prepare_runtime(Settings(data_dir=tmp_path / "migration-synthetic"))
-    command.upgrade(_alembic_config(paths), OLD_HEAD)
+    migrate_database(paths)
     engine = create_sqlite_engine(paths)
     store = ContentAddressedGooglePayloadStore(paths.root / "artifacts")
     family = FAMILY_GOOGLE_WEARABLES
@@ -504,6 +507,8 @@ def test_populated_upgrade_preserves_rows_children_indexes_and_immutability(tmp_
             result, payload=raw
         )
         session.commit()
+    # Seed with the current writer, then restore the historical text schema.
+    command.downgrade(_alembic_config(paths), OLD_HEAD)
     tables = (
         "google_sources",
         "google_raw_payloads",
@@ -520,6 +525,14 @@ def test_populated_upgrade_preserves_rows_children_indexes_and_immutability(tmp_
                 table: connection.execute(text(f"SELECT * FROM {table} ORDER BY id")).all()
                 for table in tables
             }
+            rows["google_normalization_attempts"] = [
+                dict({key: value for key, value in row.items() if key not in {
+                    "projection_blob", "projection_codec", "projection_size", "projection_sha256",
+                }}, projection_json=read_projection(row))
+                for row in connection.execute(text(
+                    "SELECT * FROM google_normalization_attempts ORDER BY id"
+                )).mappings()
+            ]
             indexes = {table: inspect(connection).get_indexes(table) for table in tables}
         return rows, indexes
 

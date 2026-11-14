@@ -146,6 +146,17 @@ normalization attempts, source records and typed children/metrics. Artifacts use
 `artifacts/google/payloads/<aa>/<sha256>.<ext>`. It reuses the generic spine, never Garmin tables. Query
 context and device evidence remain separate.
 
+Google normalization attempt bodies use `zlib-1` (zlib level 1), with the original
+UTF-8 byte length and SHA-256 stored alongside the BLOB. That SHA must equal the
+normalization DTO's `projection_fingerprint`. `google.projection_storage.read_projection`
+is the single body accessor: it verifies codec, stream, length, SHA and UTF-8 before
+returning text, and fails with `Google projection verification failed` on corruption.
+New attempts store no text body. Migration 0023 copies and verifies bounded batches
+into a resumable shadow table before atomically replacing the immutable attempt
+table; attempt identities, metadata, constraints, indexes and triggers are retained.
+Downgrade restores exact text. Compaction via VACUUM is separate Owner maintenance;
+this representation change requires backup/restore rehearsal before deployment.
+
 Photo confirmation uses `measurement_sessions`/`scalar_measurements`; corrections supersede, never
 erase. Derived measurements record input IDs/hash. Canonical rules store serialized rule/hash. Runs
 retain scope, rule/input-revision hash, build, times, status/counts/sanitized failure; selections

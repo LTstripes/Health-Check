@@ -16,6 +16,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -2679,7 +2680,11 @@ class GoogleNormalizationAttempt(Base):
     parse_status: Mapped[str] = mapped_column(String(20), nullable=False)
     record_count: Mapped[int] = mapped_column(Integer, nullable=False)
     projection_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
-    projection_json: Mapped[str] = mapped_column(Text, nullable=False)
+    projection_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    projection_blob: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    projection_codec: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    projection_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    projection_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     diagnostics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     unknown_fields_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempted_at: Mapped[datetime] = mapped_column(
