@@ -7,6 +7,7 @@ from math import isfinite
 from sqlalchemy import and_, select
 
 from healthcheck.db.models import GarminRecordMetric, GarminSourceRecord
+from healthcheck.garmin.daily_summary_candidates import daily_summary_candidate
 
 FIELDS = {
     "moderate": ("daily_moderate_intensity_min", "moderateIntensityMinutes"),
@@ -70,8 +71,7 @@ def read_intensity_minutes(session, *, source_id, start: date, end: date):
         ).where(
             GarminSourceRecord.garmin_source_id == source_id,
             GarminSourceRecord.stream_code == "daily_health",
-            GarminSourceRecord.surface_code.in_(["daily_summary"])
-            | GarminSourceRecord.surface_code.is_(None),
+            daily_summary_candidate(),
             GarminSourceRecord.projection_status == "current",
             GarminSourceRecord.source_local_date.between(lower, end),
         ).limit(MAX_METRICS + 1)).all()

@@ -7,6 +7,7 @@ from math import isfinite
 from sqlalchemy import select
 
 from healthcheck.db.models import GarminRecordMetric, GarminSourceRecord
+from healthcheck.garmin.daily_summary_candidates import daily_summary_candidate
 
 FIELDS = {"total": "totalKilocalories", "active": "activeKilocalories", "bmr": "bmrKilocalories"}
 MAX_DAYS = 366
@@ -41,8 +42,7 @@ def read_daily_energy(session, *, source_id, start: date | None, end: date | Non
         ).where(
             GarminSourceRecord.garmin_source_id == source_id,
             GarminSourceRecord.stream_code == "daily_health",
-            GarminSourceRecord.surface_code.in_(["daily_summary"])
-            | GarminSourceRecord.surface_code.is_(None),
+            daily_summary_candidate(),
             GarminSourceRecord.projection_status == "current",
             GarminSourceRecord.source_local_date.between(start, end),
             GarminRecordMetric.metric_code.in_([f"daily_{key}_kcal" for key in FIELDS]),
