@@ -6,6 +6,7 @@ window. Validation remains in analytic_contract, shared with single-row reads.
 
 from collections import defaultdict
 from collections.abc import Sequence
+from types import SimpleNamespace
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -72,8 +73,13 @@ class GarminAnalyticStorageBatch:
         ids = sorted(ids)
         rows = []
         for offset in range(0, len(ids), _CHUNK_SIZE):
-            statement = select(model).where(column.in_(ids[offset:offset + _CHUNK_SIZE]))
-            for row in session.scalars(statement.order_by(*order)):
-                self._remember(row)
+            # These are bounded, read-only assembly inputs, not entities to
+            # mutate. Preserve SQLAlchemy's typed decoding without identity-map
+            # hydration or later lazy refreshes after a nested snapshot read.
+            statement = select(*model.__table__.columns).where(
+                column.in_(ids[offset:offset + _CHUNK_SIZE]))
+            for values in session.execute(statement.order_by(*order)).mappings():
+                row = SimpleNamespace(**values)
+                self._rows.setdefault(model, {})[row.id] = row
                 rows.append(row)
         return rows

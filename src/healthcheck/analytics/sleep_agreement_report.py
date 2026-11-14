@@ -281,14 +281,11 @@ class SleepAgreementReportService:
         if run_id is not None:
             run = self.repository.get_by_id(run_id)
             return [] if run is None or run.status != RunStatus.SUCCEEDED.value else [run]
-        candidates = list(
-            self.session.scalars(
-                select(AgreementRun)
-                .where(AgreementRun.status == RunStatus.SUCCEEDED.value)
-                .order_by(AgreementRun.completed_at.desc(), AgreementRun.id.desc())
-            )
-        )
-        lineages = {item.scope_lineage_key for item in candidates}
+        lineages = self.session.scalars(
+            select(AgreementRun.scope_lineage_key)
+            .where(AgreementRun.status == RunStatus.SUCCEEDED.value)
+            .distinct()
+        ).all()
         return [
             current
             for lineage in sorted(lineages)
