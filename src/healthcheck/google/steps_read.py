@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
-from collections import defaultdict
+from bisect import bisect_left, bisect_right
+from collections import defaultdict, namedtuple
 from datetime import date, timedelta
 from time import monotonic
 
 from sqlalchemy import LargeBinary, func, select
-from sqlalchemy.orm import Load, Session, load_only
+from sqlalchemy.orm import Load, Session
 
 from healthcheck.db.models import (
     GooglePayloadObservation,
@@ -34,27 +35,59 @@ MAX_RECORDS = 4096
 MAX_CHILDREN = 4096
 MAX_TEXT_BYTES = 16 * 1024 * 1024
 COOPERATIVE_SECONDS = 5.0
+_RECORD_FIELDS = (
+    "id", "google_source_id", "stream_code", "query_mode", "data_source_family",
+    "idempotency_key", "record_identity_key", "record_status", "observation_id",
+    "raw_payload_id", "projection_observed_at",
+)
+_Record = namedtuple("StepsRecord", _RECORD_FIELDS)
+_CHILD_ROWS = {model: namedtuple(model.__name__, model.__table__.columns.keys())
+               for model in (GoogleRecordInterval, GoogleRecordMetric)}
 
 
-def read_saved_steps_window(
+def read_saved_steps_window(session: Session, *, start_date: date, end_date: date,
+                            source_id: str | None = None) -> dict:
+    """Read one exact 7/30-day window using the shared bounded evaluator."""
+    return read_saved_steps_windows(
+        session, windows=((start_date, end_date),), source_id=source_id,
+    )[0]
+
+
+def read_saved_steps_windows(session: Session, *, windows, source_id=None) -> list[dict]:
+    """Evaluate saved rows once for a request's windows; never retain a cache.
+
+    Bounds remain source-wide. Validate every current interval, including those
+    outside the union: an unlocatable interval still withholds every window.
+    """
+    windows = tuple(windows)
+    if not 1 <= len(windows) <= 2:
+        raise ValueError("one or two Google Steps windows required")
+    for start, end in windows:
+        if type(start) is not date or type(end) is not date:
+            raise ValueError("explicit civil dates required")
+        if (end - start).days + 1 not in {7, 30} or end == date.max:
+            raise ValueError("Google saved Steps supports inclusive 7/30 days only")
+    days = sorted({start + timedelta(days=i) for start, end in windows
+                   for i in range((end - start).days + 1)})
+    packet = _read_saved_steps_days(session, days=days, source_id=source_id)
+    return [dict(packet, start_date=start, end_date=end,
+                 cells=[cell for cell in packet["cells"]
+                        if start <= cell["calendar_date"] <= end])
+            for start, end in windows]
+
+
+def _read_saved_steps_days(
     session: Session,
     *,
-    start_date: date,
-    end_date: date,
+    days: list[date],
     source_id: str | None = None,
 ) -> dict:
-    """Read an exact 7/30-day window from current typed projections in one snapshot."""
-    if type(start_date) is not date or type(end_date) is not date:
-        raise ValueError("explicit civil dates required")
-    span = (end_date - start_date).days + 1
-    if span not in {7, 30} or end_date == date.max:
-        raise ValueError("Google saved Steps supports inclusive 7/30 days only")
     ensure_read_snapshot(session)
     began = monotonic()
     result = {
         "contract_version": CONTRACT,
-        "start_date": start_date,
-        "end_date": end_date,
+        "start_date": days[0],
+        "end_date": days[-1],
         "source_id": source_id,
         "source_identity": None,
         "source_choices": [],
@@ -123,24 +156,10 @@ def read_saved_steps_window(
         result["reason"] = "invalid_source_identity"
         return result
 
-    rows = list(
-        session.scalars(
-            select(GoogleSourceRecord)
-            .options(
-                load_only(
-                    GoogleSourceRecord.id,
-                    GoogleSourceRecord.google_source_id,
-                    GoogleSourceRecord.stream_code,
-                    GoogleSourceRecord.query_mode,
-                    GoogleSourceRecord.data_source_family,
-                    GoogleSourceRecord.idempotency_key,
-                    GoogleSourceRecord.record_identity_key,
-                    GoogleSourceRecord.record_status,
-                    GoogleSourceRecord.observation_id,
-                    GoogleSourceRecord.raw_payload_id,
-                    GoogleSourceRecord.projection_observed_at,
-                )
-            )
+    # Core rows avoid instrumented attributes and ORM identity-map hydration.
+    rows = [
+        _Record(*row) for row in session.execute(
+            select(*(getattr(GoogleSourceRecord, field) for field in _RECORD_FIELDS))
             .where(
                 GoogleSourceRecord.google_source_id == source.id,
                 GoogleSourceRecord.stream_code == "steps",
@@ -149,7 +168,7 @@ def read_saved_steps_window(
             .order_by(GoogleSourceRecord.id)
             .limit(MAX_RECORDS + 1)
         )
-    )
+    ]
     result["records_examined"] = len(rows)
     if len(rows) > MAX_RECORDS:
         return incomplete("record_search_incomplete")
@@ -186,9 +205,9 @@ def read_saved_steps_window(
             child_bytes += sum(size or 0 for size in sizes)
         if child_bytes > MAX_TEXT_BYTES:
             return incomplete("text_budget_exceeded")
-        children = list(
-            session.scalars(
-                select(model)
+        children = [
+            _CHILD_ROWS[model](*row) for row in session.execute(
+                select(*model.__table__.columns)
                 .join(GoogleSourceRecord, model.record_id == GoogleSourceRecord.id)
                 .where(
                     GoogleSourceRecord.google_source_id == source.id,
@@ -198,7 +217,7 @@ def read_saved_steps_window(
                 .order_by(model.record_id, model.id)
                 .limit(MAX_CHILDREN + 1)
             )
-        )
+        ]
         if len(children) > MAX_CHILDREN:
             return incomplete("child_search_incomplete")
         for child in children:
@@ -237,7 +256,6 @@ def read_saved_steps_window(
         )
     }
 
-    days = [start_date + timedelta(days=i) for i in range(span)]
     groups = defaultdict(list)
     used_bytes = 0
     for row in rows:
@@ -298,9 +316,10 @@ def read_saved_steps_window(
         )
         # A non-day interval may overlap multiple requested days. Never split or
         # sum its count; retain it as an exclusion on every affected civil date.
-        for day in days:
-            if first <= day <= last and not (day == last and end_key[3:] == (0, 0, 0, 0)):
-                groups[day].append((row, interval, full_day))
+        for day in days[bisect_left(days, first):bisect_right(days, last)]:
+            if day == last and end_key[3:] == (0, 0, 0, 0):
+                continue
+            groups[day].append((row, interval, full_day))
 
     for day in days:
         candidates = groups[day]

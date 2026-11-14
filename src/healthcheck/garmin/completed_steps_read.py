@@ -12,7 +12,7 @@ retain their accepted proof. Mutable coverage/checkpoints and v1 stay untouched.
 from __future__ import annotations
 
 import hashlib
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from time import monotonic
@@ -52,6 +52,51 @@ MAX_READ_SECONDS = 5.0
 ALL_TIME_CONTRACT_VERSION = "garmin-completed-day-steps-moscow-all-time-v1"
 ALL_TIME_BUDGET_VERSION = "garmin-completed-steps-all-time-budget-v1"
 MAX_ALL_TIME_ARTIFACTS = 4096
+
+
+# Immutable attribute-compatible tuples for the evidence validator, without ORM
+# hydration of nine joined entities per observation. No saved-data cache.
+_EVIDENCE_MODELS = (
+    GarminPayloadObservation, GarminSource, GarminRawPayload, RawArtifact,
+    SyncRun, Provider, IngestEvent, IngestBatch, GarminDailySummaryAcquisitionReceipt,
+)
+_EVIDENCE_FIELDS = (
+    ("id", "garmin_source_id", "garmin_raw_payload_id", "raw_artifact_id", "sync_run_id",
+     "ingest_event_id", "received_at", "observation_key", "stream_code", "payload_format",
+     "source_contract_version", "normalization_contract_version", "fixture_id", "parse_status",
+     "record_count", "diagnostics_json", "unknown_fields_json", "source_window_start_utc",
+     "source_window_end_utc", "source_filename"),
+    ("id", "provider_id", "acquisition_source_id", "provider_code", "source_kind",
+     "source_instance_id"),
+    ("id", "garmin_source_id", "raw_artifact_id", "content_hash", "stream_code", "payload_format"),
+    ("id", "byte_size", "content_hash", "relative_storage_path"),
+    ("id", "stream_code", "status", "completed_at", "provider_id", "acquisition_source_id",
+     "requested_start", "requested_end"),
+    ("id", "code"),
+    ("id", "acquisition_source_id", "raw_artifact_id", "provider_stream", "semantic_fingerprint",
+     "ingest_batch_id", "status"),
+    ("id", "acquisition_source_id", "batch_kind", "parser_name", "parser_version", "status"),
+    ("observation_id", "contract_version", "surface", "method", "requested_date",
+     "original_calendar_date"),
+)
+_EVIDENCE_TUPLES = tuple(namedtuple(model.__name__, fields)
+                         for model, fields in zip(_EVIDENCE_MODELS, _EVIDENCE_FIELDS, strict=True))
+_EVIDENCE_COLUMNS = tuple(getattr(model, field)
+                          for model, fields in zip(_EVIDENCE_MODELS, _EVIDENCE_FIELDS, strict=True)
+                          for field in fields)
+
+
+def _evidence_rows(session, query):
+    rows = []
+    for row in session.execute(query):
+        parts, offset = [], 0
+        for shape in _EVIDENCE_TUPLES:
+            size = len(shape._fields)
+            values = row[offset:offset + size]
+            parts.append(shape(*values) if values[0] is not None else None)
+            offset += size
+        rows.append(tuple(parts))
+    return rows
 
 
 def completion_boundary(day: date) -> datetime:
@@ -170,6 +215,28 @@ def read_completed_steps_window(
     )
 
 
+def read_completed_steps_windows(session: Session, *, payload_store, source_id,
+                                 windows, evaluated_at):
+    """Share the union metadata read, retaining each window's v2 limits/counters.
+
+    The earlier window owns the broad query. An overflowing broad scan cannot
+    prove a narrower prefix complete, so that case uses its original SQL query.
+    The shared rows are discarded on return; originals remain independently
+    verified under each window's existing byte/artifact budget.
+    """
+    windows = tuple(windows)
+    if not 1 <= len(windows) <= 2:
+        raise ValueError("one or two completed Steps windows required")
+    shared, results = {}, {}
+    for index in sorted(range(len(windows)), key=lambda i: windows[i][0]):
+        start, end = windows[index]
+        results[index] = _read_completed_steps(
+            session, payload_store=payload_store, source_id=source_id,
+            start_date=start, end_date=end, evaluated_at=evaluated_at, _shared=shared,
+        )
+    return [results[i] for i in range(len(windows))]
+
+
 def read_completed_steps_all_time(
     session: Session,
     *,
@@ -218,6 +285,7 @@ def _read_completed_steps(
     _all_time: bool = False,
     _started: float | None = None,
     _requested_end_date: date | None = None,
+    _shared: dict | None = None,
 ) -> CompletedStepsWindow:
     """Bound metadata, then scan relevant originals once in one snapshot.
 
@@ -288,8 +356,22 @@ def _read_completed_steps(
             False,
         )
 
+    date_set = set(dates)
+
     def in_scope(day):
-        return day <= end_date if _all_time else day in dates
+        return day <= end_date if _all_time else day in date_set
+
+    def checked_acquisition(observation, src, raw, artifact, run, provider, event, batch,
+                            receipt, day):
+        if _shared is None:
+            return acquisition_reason(observation, src, raw, artifact, run,
+                                      provider, event, batch, receipt, day)
+        reasons = _shared.setdefault("acquisition_reasons", {})
+        key = (observation.id, day)
+        if key not in reasons:
+            reasons[key] = acquisition_reason(observation, src, raw, artifact, run,
+                                              provider, event, batch, receipt, day)
+        return reasons[key]
 
     if _all_time and source_id is None:
         return result(reason="source_selection_required")
@@ -303,17 +385,7 @@ def _read_completed_steps(
         return result(reason="no_completed_days")
     obs = GarminPayloadObservation
     query = (
-        select(
-            obs,
-            GarminSource,
-            GarminRawPayload,
-            RawArtifact,
-            SyncRun,
-            Provider,
-            IngestEvent,
-            IngestBatch,
-            GarminDailySummaryAcquisitionReceipt,
-        )
+        select(*_EVIDENCE_COLUMNS)
         .outerjoin(GarminSource, GarminSource.id == obs.garmin_source_id)
         .outerjoin(GarminRawPayload, GarminRawPayload.id == obs.garmin_raw_payload_id)
         .outerjoin(RawArtifact, RawArtifact.id == GarminRawPayload.raw_artifact_id)
@@ -339,7 +411,14 @@ def _read_completed_steps(
     if source_id:
         query = query.where(obs.garmin_source_id == source_id)
     try:
-        rows = list(session.execute(query))
+        if _shared is not None and "rows" in _shared and len(_shared["rows"]) <= MAX_PROVENANCE:
+            lower = completion_boundary(dates[0])
+            rows = [row for row in _shared["rows"]
+                    if restore_stored_utc(row[0].received_at) >= lower]
+        else:
+            rows = _evidence_rows(session, query)
+            if _shared is not None:
+                _shared["rows"] = rows
     except (ValueError, TypeError, OverflowError):
         return incomplete("acquisition_receipt_unreadable")
     provenance = len(rows)
@@ -361,7 +440,7 @@ def _read_completed_steps(
         if run is not None and run.stream_code == "garmin_reprocess":
             continue
         raw_id = observation.garmin_raw_payload_id
-        if receipt is None or acquisition_reason(
+        if receipt is None or checked_acquisition(
             observation,
             src,
             raw,
@@ -427,7 +506,7 @@ def _read_completed_steps(
             history_days.add(day)
         if not in_scope(day) or received < completion_boundary(day):
             continue
-        reason = acquisition_reason(
+        reason = checked_acquisition(
             observation, src, raw, artifact, run, provider, event, batch, receipt, day
         )
         evidence = CompletedStepsEvidence(
