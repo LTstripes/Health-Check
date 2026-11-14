@@ -17,6 +17,7 @@ from healthcheck.garmin.normalization import (
     normalize_garmin_payload,
 )
 from healthcheck.garmin.reprocess import run_garmin_reprocess
+from healthcheck.garmin.training import persist_training_payload
 from healthcheck.web.statistics import templates as statistics_templates
 from healthcheck.web.ui_app import create_ui_app
 from overview_html import parse_overview
@@ -81,6 +82,45 @@ def test_full_week_and_read_only(database):
     assert week["goal"] == 150 and week["goal_date"] == MONDAY + timedelta(days=6)
     assert result["rows"][0]["evidence"][0]["raw_payload_id"]
     assert not {"insert", "update", "delete", "create", "alter"}.intersection(statements)
+
+
+@pytest.mark.parametrize("mutation", [None, "mixed", "metricless", "daily_summary"])
+def test_null_surface_training_records_do_not_collide_unless_summary_candidates(database, mutation):
+    source = seed(database, days=1,
+                  account=garmin_source_identity(source_kind="provider").source_instance_id)
+    session, store = database[2:]
+    persist_training_payload(session, store, surface="training_readiness", requested_date=MONDAY,
+        payload=[{"calendarDate": MONDAY.isoformat(), "timestamp": f"{MONDAY}T{hour}:00:00",
+                  "score": 75} for hour in ("06", "12")], received_at=NOW)
+    session.commit()
+    training = session.query(GarminSourceRecord).filter_by(surface_code=None).all()
+    assert len(training) == 2
+    for record in training:
+        assert record.garmin_source_id == source and record.stream_code == "daily_health"
+        assert record.projection_status == "current" and record.source_local_date == MONDAY
+        metrics = session.query(GarminRecordMetric).filter_by(record_id=record.id).all()
+        assert metrics and all(metric.capability_code == "garmin_training" for metric in metrics)
+    if mutation == "mixed":
+        # A non-intensity metric must still make this a legacy summary candidate.
+        session.add(GarminRecordMetric(record_id=training[0].id, capability_code="steps",
+            metric_code="steps", field_path="payload.totalSteps", state="value",
+            value_number=17, unit="count"))
+    elif mutation == "metricless":
+        session.query(GarminRecordMetric).filter_by(record_id=training[0].id).delete()
+    elif mutation == "daily_summary":
+        training[0].surface_code = "daily_summary"
+    session.commit()
+    packet = read(database, source, end=MONDAY)
+    row = packet["rows"][0]
+    if mutation is None:
+        assert (row["moderate"], row["vigorous"], row["total"]) == (10, 5, 20)
+        assert packet["weeks"][0]["total"] == 20
+        assert packet["weeks"][0]["complete"]
+        assert len(row["evidence"]) == 3
+    else:
+        assert all(row[key] is None for key in (*FIELDS, "total"))
+        assert packet["weeks"][0]["total"] is None
+        assert packet["weeks"][0]["count"] == 0
 
 
 def test_partial_days_never_fill_or_count_unpaired_minutes(database):

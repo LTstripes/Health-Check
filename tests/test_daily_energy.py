@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event
 
 from healthcheck.config import Settings
-from healthcheck.db.models import GarminSourceRecord
+from healthcheck.db.models import GarminRecordMetric, GarminSourceRecord
 from healthcheck.garmin.daily_energy import FIELDS, read_daily_energy
 from healthcheck.garmin.normalization import (
     NORMALIZATION_CONTRACT_VERSION,
@@ -18,6 +18,7 @@ from healthcheck.garmin.normalization import (
     normalize_garmin_payload,
 )
 from healthcheck.garmin.reprocess import run_garmin_reprocess
+from healthcheck.garmin.training import persist_training_payload
 from healthcheck.web.statistics import statistics_energy_chart
 from healthcheck.web.ui_app import create_ui_app
 from overview_html import parse_overview
@@ -63,10 +64,10 @@ def test_exact_daily_fields(key, leaf, value, state):
         assert result.records[0].metric(f"daily_{other}_kcal").state.value == "missing"
 
 
-def seed(database, days=2):
+def seed(database, days=2, *, account="synthetic-account"):
     _, _, session, store = database
     for index in range(days):
-        saved = acquire(session, store, day=START + timedelta(days=index), at=NOW,
+        saved = acquire(session, store, day=START + timedelta(days=index), at=NOW, account=account,
             extra={"totalKilocalories": 2000 + 200 * index,
                    "activeKilocalories": 500 + 100 * index, "bmrKilocalories": 1500 + 100 * index},
             window_day=START + timedelta(days=index))
@@ -99,6 +100,30 @@ def test_independent_averages_missing_and_read_only(database):
     assert result["rows"][0]["evidence"][0]["raw_payload_id"]
     assert not {"insert", "update", "delete", "create", "alter"}.intersection(statements)
     assert all(row["total"] is None for row in read(database, None)["rows"])
+
+
+def test_null_surface_training_records_do_not_collide(database):
+    source = seed(database, days=1,
+                  account=garmin_source_identity(source_kind="provider").source_instance_id)
+    session, store = database[2:]
+    persist_training_payload(session, store, surface="training_readiness", requested_date=START,
+        payload=[{"calendarDate": START.isoformat(), "timestamp": f"{START}T{hour}:00:00",
+                  "score": 75} for hour in ("06", "12")], received_at=NOW)
+    session.commit()
+    training = session.query(GarminSourceRecord).filter_by(surface_code=None).all()
+    assert len(training) == 2
+    for record in training:
+        assert record.garmin_source_id == source and record.stream_code == "daily_health"
+        assert record.projection_status == "current" and record.source_local_date == START
+        metrics = session.query(GarminRecordMetric).filter_by(record_id=record.id).all()
+        assert metrics and all(metric.capability_code == "garmin_training" for metric in metrics)
+    packet = read(database, source)
+    row = packet["rows"][0]
+    assert (row["total"], row["active"], row["bmr"]) == (2000, 500, 1500)
+    assert len(row["evidence"]) == 3
+    assert packet["summary"]["total"]["count"] == 1
+    assert packet["summary"]["total"]["mean_value"] == 2000
+    assert all(row["total"] is None for row in packet["rows"][1:])
 
 
 def test_no_fill_from_two_components_or_wellness():
