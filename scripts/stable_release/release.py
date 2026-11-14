@@ -1,7 +1,8 @@
 """Offline release CLI. See config.example.json and OWNER_OPERATIONS.md.
 
 No scheduler mutations, provider calls, backup creation or database restore.
-Subprocess output and HTTP bodies are never persisted in diagnostics.
+Only the optional autostart dry-run output is persisted, with gateway-token redaction.
+HTTP bodies and other subprocess output are never persisted in diagnostics.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -224,6 +226,74 @@ def prepared_consumers(config, old, new, pointer, proposed, old_schema, head):
     return result
 
 
+def autostart_dry_run(config, manifest, *, live=False):
+    """Check the local wrapper without starting services or changing live Ops files."""
+    if not config.get("autostart_dry_run_script"):
+        return {"status": "SKIP", "reason": "autostart_dry_run_not_configured"}
+
+    result = {"status": "FAIL", "reason": "autostart_dry_run_failed",
+              "stdout": "", "stderr": ""}
+
+    def captured(value):
+        text = value.decode("utf-8-sig", errors="replace") if isinstance(value, bytes) else value
+        token = os.environ.get("HEALTHCHECK_MCP_GATEWAY_TOKEN")
+        return (text or "").replace(token, "[REDACTED]") if token else (text or "")
+
+    try:
+        script = absolute(config["autostart_dry_run_script"])
+        pointer = absolute(config["active_pointer"])
+        require(pointer.name == "active-code.private.json"
+                and pointer.parent.name == "maintenance",
+                "autostart_pointer_layout_invalid")
+        ops = pointer.parent.parent
+        with contextlib.ExitStack() as stack:
+            if not live:
+                ops = Path(stack.enter_context(tempfile.TemporaryDirectory(
+                    prefix="healthcheck-autostart-"))).resolve()
+                proposed = ops / "maintenance" / pointer.name
+                proposed.parent.mkdir()
+                create_json(proposed, manifest["proposed_pointer"])
+                recipe = next(e for e in config["consumers"] if e["role"] == "weekly-recipe")
+                source = absolute(recipe["path"])
+                require(source.is_relative_to(pointer.parent.parent),
+                        "autostart_recipe_outside_ops")
+                prepared = next((e for e in manifest["consumers"]
+                                 if e["role"] == "weekly-recipe"), None)
+                data = prepared["after"].encode() if prepared else secret_free(source.read_bytes())
+                destination = ops / source.relative_to(pointer.parent.parent)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(data)
+            # -File cannot bind an int[] port list in Windows PowerShell 5.1.
+            # Invoke the file through -Command; & still enforces execution policy.
+            def quote(value):
+                return "'" + str(value).replace("'", "''") + "'"
+            invocation = ("[Console]::OutputEncoding=New-Object Text.UTF8Encoding($false); "
+                          f"& {quote(script)} -OpsRoot {quote(ops)} -DryRun "
+                          "-DryRunOccupiedPorts 8120,8787")
+            engine = config.get("powershell_executable",
+                                "powershell.exe" if os.name == "nt" else "pwsh")
+            process = subprocess.run(
+                [engine,
+                 "-NoProfile", "-NonInteractive", "-Command", invocation],
+                capture_output=True, timeout=120,
+                creationflags=0x08000000 if os.name == "nt" else 0)
+            result.update(returncode=process.returncode, stdout=captured(process.stdout),
+                          stderr=captured(process.stderr))
+            output = (process.stdout + b"\n" + process.stderr).decode(
+                "utf-8-sig", errors="replace")
+            # The wrapper's mutex refusal is not evidence of a checked pointer.
+            if (process.returncode == 0 and "FAIL" not in output.upper()
+                    and "SKIP: AUTOSTART ALREADY RUNNING" not in output.upper()):
+                result = dict(result, status="PASS")
+                del result["reason"]
+    except subprocess.TimeoutExpired as exc:
+        result.update(detail="timeout", stdout=captured(exc.stdout), stderr=captured(exc.stderr))
+    except (OSError, Refused) as exc:
+        result["detail"] = (str(exc) if isinstance(exc, Refused)
+                            else "launch_or_staging_unavailable")
+    return result
+
+
 def candidate(config, target, ci_id, force_strict=False, now=None):
     now = now or datetime.now(UTC)
     require(SHA.fullmatch(target) is not None, "full_target_sha_required")
@@ -299,6 +369,9 @@ def candidate(config, target, ci_id, force_strict=False, now=None):
                                      old["ui_binding"], config["old_mcp_binding"],
                                      new_ui, new_mcp),
                 "consumer_overlaps_input")
+    script_hash = None
+    if config.get("autostart_dry_run_script"):
+        script_hash = digest(absolute(config["autostart_dry_run_script"]).read_bytes())
     return {"format": 1, "old_sha": old["sha"], "new_sha": target, "profile": str(profile),
             "route": route, "reasons": reasons, "force_strict": force_strict,
             "current_revision": current, "target_head": head, "recovery_point": rp,
@@ -306,6 +379,7 @@ def candidate(config, target, ci_id, force_strict=False, now=None):
                                        mcp_binding=config["old_mcp_binding"]),
             "new": new, "rollback_target": old, "active_pointer": str(pointer),
             "proposed_pointer": proposed, "consumers": consumers,
+            "autostart_script_sha256": script_hash,
             "tooling_sha256": {name: digest((HERE / name).read_bytes()) for name in
                                ("release.py", "probe.py", "ui_server.py", "StartStable.ps1",
                                 "consumers.py")},
@@ -320,7 +394,7 @@ def preflight(manifest, config, now=None):
     require(digest(Path(manifest["config"]).read_bytes()) == manifest["config_sha256"],
             "config_changed")
     require({k: v for k, v in manifest.items()
-             if k not in ("config", "config_sha256", "prepared_utc")}
+             if k not in ("config", "config_sha256", "prepared_utc", "autostart_dry_run")}
             == expected, "manifest_reality_mismatch")
 
 
@@ -332,6 +406,12 @@ def prepare(config_path, target, ci_id, output, force_strict=False):
                     prepared_utc=datetime.now(UTC).isoformat())
     # Serialize and parse before publication; preflight compares structured fields.
     preflight(json.loads(json_bytes(manifest)), config)
+    result = autostart_dry_run(config, manifest)
+    create_json(Path(output).parent / "preflight.json", {
+        "status": "FAIL" if result["status"] == "FAIL" else "PASS", "new_sha": target,
+        "autostart_dry_run": result})
+    require(result["status"] != "FAIL", "autostart_dry_run_failed")
+    manifest["autostart_dry_run"] = result
     create_json(output, manifest)
     age = (datetime.now(UTC) - utc(manifest["recovery_point"]["utc"])).total_seconds() / 86400
     print(f"{manifest['old_sha'][:8]} -> {target[:8]}; {manifest['route']}: "
@@ -788,8 +868,14 @@ def activate(manifest_path, runtime=None):
             receipt["finished_utc"] = datetime.now(UTC).isoformat()
             create_json(receipt_path, receipt)
             raise Refused(receipt.get("diagnostic", receipt["error"])) from None
-        receipt["finished_utc"] = datetime.now(UTC).isoformat()
-        create_json(receipt_path, receipt)
+    # The wrapper takes the same mutex. Run after releasing it so a mutex SKIP
+    # cannot masquerade as a successful validation. Activation is already complete.
+    result = autostart_dry_run(config, manifest, live=True)
+    if result["status"] == "FAIL":
+        result["status"] = "WARN"
+    receipt["autostart_dry_run"] = result
+    receipt["finished_utc"] = datetime.now(UTC).isoformat()
+    create_json(receipt_path, receipt)
     return receipt
 
 
@@ -811,6 +897,8 @@ def main():
         else:
             result = activate(args.manifest)
             print("activation " + result["status"])
+            if result["autostart_dry_run"]["status"] == "WARN":
+                print("activation warning: autostart_dry_run_failed", file=sys.stderr)
     except BaseException as exc:
         error = str(exc) if isinstance(exc, Refused) else "release_tool_failed"
         prefix = "preflight FAIL: " if args.command == "prepare" else "activation FAIL: "

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 import socket
 import sqlite3
 import subprocess
@@ -146,6 +148,276 @@ def prepare(case, strict=False):
     write_json(case["config_path"], case["config"])
     return tool.prepare(case["config_path"], case["new_sha"], "123/attempts/1",
                         case["manifest_path"], strict)
+
+
+AUTOSTART_STUB = r'''
+[CmdletBinding()]
+param([string]$OpsRoot, [switch]$DryRun, [int[]]$DryRunOccupiedPorts=@())
+$ErrorActionPreference='Stop'
+if (-not $DryRun -or $DryRunOccupiedPorts.Count -ne 2 -or
+    $DryRunOccupiedPorts -notcontains 8120 -or $DryRunOccupiedPorts -notcontains 8787) {
+    throw 'FAIL: unsafe dry-run arguments'
+}
+$a=Get-Content -LiteralPath (Join-Path $OpsRoot 'maintenance/active-code.private.json') -Raw |
+    ConvertFrom-Json
+$b=Get-Content -LiteralPath $a.ui_binding -Raw | ConvertFrom-Json
+$allowed=@((Split-Path -Parent $a.ui_binding),(Join-Path $a.code 'scripts/stable_release'))
+if ($allowed -notcontains (Split-Path -Parent $a.ui_start_script) -or
+    -not (Test-Path -LiteralPath $a.ui_start_script) -or $b.code -ne $a.code -or
+    $b.sha -ne $a.sha) {
+    Write-Output 'FAIL: release StartStable missing/misbound'; exit 8
+}
+$recipePath=Join-Path $OpsRoot 'assistant-weekly-read-488/invocation-recipe.txt'
+$recipe=Get-Content -LiteralPath $recipePath -Raw
+$match=[regex]::Match($recipe,'(?m)^Binding:\s*(.+?)\s*$')
+if (-not $match.Success -or $match.Groups[1].Value.Trim() -ne $a.mcp_binding) {
+    throw 'FAIL: recipe binding mismatch'
+}
+Write-Output 'PASS: pointer, UI start script and recipe checked; no services started'
+'''
+
+
+@pytest.fixture
+def autostart_case(release_case, monkeypatch):
+    case = release_case
+    ops = case["pointer"].parent
+    pointer = ops / "maintenance" / "active-code.private.json"
+    pointer.parent.mkdir()
+    case["pointer"].rename(pointer)
+    case["pointer"] = pointer
+    case["config"]["active_pointer"] = str(pointer)
+    for entry in case["config"]["consumers"]:
+        if entry["role"] == "active-pointer":
+            entry["path"] = str(pointer)
+        if entry["role"] == "weekly-recipe":
+            recipe = ops / "assistant-weekly-read-488" / "invocation-recipe.txt"
+            recipe.parent.mkdir()
+            Path(entry["path"]).rename(recipe)
+            entry["path"] = str(recipe)
+    # Installed tooling beside the binding is one valid wrapper layout.
+    for name in ("release.py", "probe.py", "ui_server.py", "StartStable.ps1", "consumers.py"):
+        shutil.copyfile(tool.HERE / name, ops / name)
+    monkeypatch.setattr(tool, "HERE", ops)
+    script = case["root"] / "synthetic autostart's.ps1"
+    script.write_text(AUTOSTART_STUB, encoding="utf-8")
+    case["config"].update(autostart_dry_run_script=str(script),
+                          powershell_executable="synthetic-powershell")
+    case["ops"] = ops
+    return case
+
+
+def mock_autostart(case, monkeypatch, response=None):
+    """Exercise staging/receipts on hosts unable to execute an unsigned .ps1."""
+    original = subprocess.run
+    calls = []
+
+    def run(args, **kwargs):
+        if args[0] != "synthetic-powershell":
+            return original(args, **kwargs)
+        assert args[1:4] == ["-NoProfile", "-NonInteractive", "-Command"]
+        assert "ExecutionPolicy" not in args[-1]
+        script = case["config"]["autostart_dry_run_script"].replace("'", "''")
+        assert f"& '{script}' -OpsRoot " in args[-1]
+        assert args[-1].endswith("-DryRun -DryRunOccupiedPorts 8120,8787")
+        match = re.search(r"-OpsRoot '((?:[^']|'')*)' -DryRun", args[-1])
+        ops = Path(match[1].replace("''", "'"))
+        calls.append(ops)
+        pointer = tool.read_json(ops / "maintenance" / "active-code.private.json")
+        assert pointer["sha"] == case["new_sha"]
+        binding = tool.read_json(pointer["ui_binding"])
+        assert binding["code"] == pointer["code"] and binding["sha"] == pointer["sha"]
+        recipe = (ops / "assistant-weekly-read-488" / "invocation-recipe.txt").read_text()
+        assert f"Binding: {case['mcp_paths'][1]}" in recipe
+        if response is not None:
+            return response(args, ops)
+        start = Path(pointer["ui_start_script"])
+        allowed = (Path(pointer["ui_binding"]).parent,
+                   Path(pointer["code"]) / "scripts/stable_release")
+        valid = start.parent in allowed and start.is_file()
+        return subprocess.CompletedProcess(args, 0 if valid else 8,
+                                           b"PASS: checked" if valid else b"FAIL: misbound", b"")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    return calls
+
+
+@pytest.mark.parametrize("misbound", [False, True])
+def test_prepare_checks_proposed_autostart_without_live_writes(autostart_case, monkeypatch,
+                                                             misbound):
+    case = autostart_case
+    if misbound:
+        elsewhere = case["root"] / "unrelated-tooling"
+        shutil.copytree(tool.HERE, elsewhere)
+        monkeypatch.setattr(tool, "HERE", elsewhere)
+    calls = mock_autostart(case, monkeypatch)
+    write_json(case["config_path"], case["config"])
+    before = {p: p.read_bytes() for p in case["ops"].rglob("*") if p.is_file()}
+    if misbound:
+        with pytest.raises(tool.Refused, match="^autostart_dry_run_failed$"):
+            prepare(case)
+        assert not case["manifest_path"].exists()
+    else:
+        assert prepare(case)["autostart_dry_run"]["status"] == "PASS"
+    result = tool.read_json(case["manifest_path"].parent / "preflight.json")
+    assert result["status"] == ("FAIL" if misbound else "PASS")
+    output = result["autostart_dry_run"]["stdout"]
+    assert ("FAIL: misbound" if misbound else "PASS: checked") in output
+    assert len(calls) == 1 and calls[0] != case["ops"] and not calls[0].exists()
+    assert all(p.read_bytes() == data for p, data in before.items())
+    added = {p for p in case["ops"].rglob("*") if p.is_file()} - before.keys()
+    assert added == ({case["manifest_path"].parent / "preflight.json"} |
+                     (set() if misbound else {case["manifest_path"]}))
+
+
+@pytest.mark.parametrize(("returncode", "stdout", "stderr"), [
+    (0, b"FAIL: invalid pointer", b""), (0, b"", b"FAIL: invalid binding"),
+    (9, b"script refused", b"diagnostic"),
+    (0, b"SKIP: autostart already running", b""),
+])
+def test_autostart_failure_output_is_receipted(autostart_case, monkeypatch,
+                                              returncode, stdout, stderr):
+    calls = mock_autostart(autostart_case, monkeypatch, lambda args, ops:
+                           subprocess.CompletedProcess(args, returncode, stdout, stderr))
+    with pytest.raises(tool.Refused, match="^autostart_dry_run_failed$"):
+        prepare(autostart_case)
+    result = tool.read_json(autostart_case["manifest_path"].parent / "preflight.json")
+    assert result["autostart_dry_run"] == {
+        "status": "FAIL", "reason": "autostart_dry_run_failed", "returncode": returncode,
+        "stdout": stdout.decode(), "stderr": stderr.decode()}
+    assert not calls[0].exists()
+
+
+@pytest.mark.parametrize("failure", ["timeout", "unavailable"])
+def test_autostart_launch_failures_clean_up_and_preserve_output(autostart_case, monkeypatch,
+                                                              failure):
+    def response(args, ops):
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(args, 120, output=b"partial output", stderr=b"waiting")
+        raise FileNotFoundError("synthetic engine unavailable")
+
+    calls = mock_autostart(autostart_case, monkeypatch, response)
+    with pytest.raises(tool.Refused, match="^autostart_dry_run_failed$"):
+        prepare(autostart_case)
+    result = tool.read_json(autostart_case["manifest_path"].parent / "preflight.json")
+    check = result["autostart_dry_run"]
+    expected = "timeout" if failure == "timeout" else "launch_or_staging_unavailable"
+    assert check["detail"] == expected
+    assert check["stdout"] == ("partial output" if failure == "timeout" else "")
+    assert not calls[0].exists()
+
+
+def test_autostart_captures_output_without_gateway_token(autostart_case, monkeypatch):
+    mock_autostart(autostart_case, monkeypatch, lambda args, ops:
+                   subprocess.CompletedProcess(args, 0, TOKEN.encode(), TOKEN.encode()))
+    manifest = prepare(autostart_case)
+    assert manifest["autostart_dry_run"]["stdout"] == "[REDACTED]"
+    assert manifest["autostart_dry_run"]["stderr"] == "[REDACTED]"
+    for name in ("manifest.json", "preflight.json"):
+        assert TOKEN.encode() not in (autostart_case["manifest_path"].parent / name).read_bytes()
+
+
+def test_autostart_stages_pointer_reading_recipe(autostart_case, monkeypatch):
+    case = autostart_case
+    entry = next(e for e in case["config"]["consumers"] if e["role"] == "weekly-recipe")
+    entry.update(mode="pointer-reading")
+    del entry["replacements"]
+    Path(entry["path"]).write_text(f"Binding: {case['mcp_paths'][1]}\n")
+    calls = mock_autostart(case, monkeypatch)
+    manifest = prepare(case)
+    assert all(e["role"] != "weekly-recipe" for e in manifest["consumers"])
+    assert manifest["autostart_dry_run"]["status"] == "PASS"
+    assert not calls[0].exists()
+
+
+def test_autostart_key_absent_is_recorded_as_skipped(release_case, runtime):
+    manifest = prepare(release_case)
+    expected = {"status": "SKIP", "reason": "autostart_dry_run_not_configured"}
+    assert manifest["autostart_dry_run"] == expected
+    assert tool.read_json(release_case["manifest_path"].parent / "preflight.json")[
+        "autostart_dry_run"] == expected
+    assert tool.activate(release_case["manifest_path"], runtime)["autostart_dry_run"] == expected
+
+
+@pytest.mark.parametrize("fail_live", [False, True])
+def test_activation_checks_live_autostart_after_unlock_as_warning(autostart_case, runtime,
+                                                                monkeypatch, fail_live):
+    case = autostart_case
+    held = []
+    original_lock = tool.autostart_lock
+
+    @tool.contextlib.contextmanager
+    def lock(*args):
+        with original_lock(*args):
+            held.append(True)
+            try:
+                yield
+            finally:
+                held.pop()
+
+    def response(args, ops):
+        assert not held
+        failed = fail_live and ops == case["ops"]
+        output = b"FAIL: live binding" if failed else b"PASS"
+        return subprocess.CompletedProcess(args, 0, output, b"")
+
+    monkeypatch.setattr(tool, "autostart_lock", lock)
+    calls = mock_autostart(case, monkeypatch, response)
+    prepare(case)
+    receipt = tool.activate(case["manifest_path"], runtime)
+    assert receipt["status"] == "PASS" and "rollback" not in receipt
+    assert receipt["autostart_dry_run"]["status"] == ("WARN" if fail_live else "PASS")
+    assert receipt == tool.read_json(case["manifest_path"].parent / "activation.json")
+    assert len(calls) == 2 and calls[-1] == case["ops"] and not calls[0].exists()
+    assert tool.read_json(case["pointer"])["sha"] == case["new_sha"]
+    runtime.smoke(tool.read_json(case["manifest_path"])["new"])
+
+
+def test_activation_rejects_changed_autostart_script(autostart_case, runtime, monkeypatch):
+    mock_autostart(autostart_case, monkeypatch)
+    prepare(autostart_case)
+    Path(autostart_case["config"]["autostart_dry_run_script"]).write_text("# changed wrapper\n")
+    with pytest.raises(tool.Refused, match="manifest_reality_mismatch"):
+        tool.activate(autostart_case["manifest_path"], runtime)
+    assert tool.read_json(autostart_case["pointer"])["sha"] == autostart_case["old_sha"]
+
+
+@pytest.mark.parametrize("engine", ["powershell.exe", "pwsh"])
+@pytest.mark.parametrize("misbound", [False, True])
+def test_real_powershell_autostart_stub(autostart_case, monkeypatch, engine, misbound):
+    executable = shutil.which(engine)
+    if executable is None:
+        pytest.skip(engine + " unavailable")
+    policy = tool.command([executable, "-NoProfile", "-NonInteractive", "-Command",
+                           "Get-ExecutionPolicy"])
+    if policy in ("Restricted", "AllSigned"):
+        pytest.skip(engine + " execution policy " + policy + " disallows unsigned synthetic .ps1")
+    case = autostart_case
+    case["config"]["powershell_executable"] = executable
+    if misbound:
+        elsewhere = case["root"] / "unrelated-tooling"
+        shutil.copytree(tool.HERE, elsewhere)
+        monkeypatch.setattr(tool, "HERE", elsewhere)
+        with pytest.raises(tool.Refused, match="^autostart_dry_run_failed$"):
+            prepare(case)
+    else:
+        assert prepare(case)["autostart_dry_run"]["status"] == "PASS"
+
+
+def test_restricted_powershell_refusal_is_receipted(autostart_case):
+    executable = shutil.which("powershell.exe")
+    if executable is None:
+        pytest.skip("powershell.exe unavailable")
+    policy = tool.command([executable, "-NoProfile", "-NonInteractive", "-Command",
+                           "Get-ExecutionPolicy"])
+    if policy != "Restricted":
+        pytest.skip("Restricted execution policy required for refusal check")
+    case = autostart_case
+    case["config"]["powershell_executable"] = executable
+    with pytest.raises(tool.Refused, match="^autostart_dry_run_failed$"):
+        prepare(case)
+    result = tool.read_json(case["manifest_path"].parent / "preflight.json")["autostart_dry_run"]
+    assert result["status"] == "FAIL" and result["returncode"] != 0 and result["stderr"]
+    assert not case["manifest_path"].exists()
 
 
 @pytest.mark.parametrize(("paths", "current", "head", "strict", "expected"), [
