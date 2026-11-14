@@ -26,11 +26,15 @@ def google_steps_interval_key(interval: Any) -> str:
         if endpoint is None:
             evidence = json.loads(getattr(interval, f"{name}_temporal_json"))
             raw = evidence.get("raw_civil_json")
-        if not isinstance(raw, str) or not isinstance(json.loads(raw), dict):
+        if not isinstance(raw, str):
             raise ValueError("Steps interval requires raw civil endpoint objects")
-        if canonical_json(json.loads(raw)) != raw:
+        decoded = json.loads(raw)
+        if not isinstance(decoded, dict):
+            raise ValueError("Steps interval requires raw civil endpoint objects")
+        canonical = canonical_json(decoded)
+        if canonical != raw:
             raise ValueError("Steps raw civil JSON must be canonical and unambiguous")
-        day, wall, key = parse_steps_civil_endpoint(json.loads(raw))
+        day, wall, key = parse_steps_civil_endpoint(decoded)
         order.append(key)
         if endpoint is not None:
             precision, state = _value(endpoint.precision), _value(endpoint.state)
@@ -64,7 +68,7 @@ def google_steps_interval_key(interval: Any) -> str:
             or offset is not None
         ):
             raise ValueError("Steps civil endpoint disagrees with raw evidence")
-        endpoints[name] = canonical_json(json.loads(raw))
+        endpoints[name] = canonical
     if order[0] >= order[1]:
         raise ValueError("Steps civil interval must be strictly ordered")
     digest = hashlib.sha256(canonical_json(endpoints).encode()).hexdigest()

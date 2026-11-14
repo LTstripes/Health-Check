@@ -49,11 +49,11 @@ from healthcheck.web.detail_navigation import local_return_href
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
 from healthcheck.web.imports import _batch_payload
 from healthcheck.web.overview_charts import read_overview_charts
-from healthcheck.web.overview_compare import read_overview_comparison
+from healthcheck.web.overview_compare import previous_overview_window, read_overview_comparison
 from healthcheck.web.overview_completed import read_completed_overview
 from healthcheck.web.overview_coverage import overview_low_coverage
 from healthcheck.web.overview_rhr import read_overview_rhr
-from healthcheck.web.overview_steps import read_overview_steps
+from healthcheck.web.overview_steps import read_overview_steps_pair
 from healthcheck.web.overview_view import overview_number, read_overview_values
 from healthcheck.web.owner_presentation import (
     ACTIVITY_NAMES,
@@ -1233,9 +1233,10 @@ def period_brief_page(
                     sleep_series=charts["technical"]["sleep"].get("sleep_duration_seconds"),
                 ))
             with timing.block("steps"):
-                overview["steps"] = read_overview_steps(
+                overview["steps"], previous_steps = read_overview_steps_pair(
                     session, paths=request.app.state.runtime_paths,
                     window=overview["completed_window"],
+                    previous_window=previous_overview_window(overview["completed_window"]),
                     source_id=source_selection.get("selected_source_id"), evaluated_at=evaluated_at,
                 )
                 energy_window = overview["completed_window"]
@@ -1255,6 +1256,7 @@ def period_brief_page(
                 overview["comparison"] = read_overview_comparison(
                     session, request.app.state.settings, paths=request.app.state.runtime_paths,
                     overview=overview, start=start, end=end,
+                    prior_steps=previous_steps["items"],
                     source_id=source_selection.get("selected_source_id"),
                     evaluated_at=evaluated_at,
                 )

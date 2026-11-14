@@ -179,7 +179,7 @@ def _last_night(session, *, provider, packet):
 
 
 def read_overview_comparison(session, settings, *, paths, overview, start, end,
-                              source_id, evaluated_at):
+                              source_id, evaluated_at, prior_steps=None):
     """Reuse current card reads; only the preceding window is read again."""
     window = overview["completed_window"]
     previous_window = previous_overview_window(window)
@@ -239,10 +239,10 @@ def read_overview_comparison(session, settings, *, paths, overview, start, end,
                                 rhr_value(prior, previous_requested)))
     current_steps = overview["steps"]["items"]
     google_steps_id = (current_steps[1]["technical"] or {}).get("source_id")
-    prior_steps = read_overview_steps(
+    prior_steps = prior_steps if prior_steps is not None else (read_overview_steps(
         session, paths=paths, window=previous_window, source_id=source_id,
         evaluated_at=evaluated_at, google_source_id=google_steps_id,
-    )["items"] if not window["empty"] else current_steps
+    )["items"] if not window["empty"] else current_steps)
     for current, prior in zip(current_steps, prior_steps, strict=True):
         provider = "garmin" if current["provider"] == "Garmin" else "google"
         prior_value = _value(prior["mean_value"], prior["count"], previous_window, prior["reason"])
