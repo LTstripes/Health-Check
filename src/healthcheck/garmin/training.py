@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -524,6 +525,7 @@ def read_training_evidence(
         session.scalars(
             select(GarminSourceRecord)
             .join(GarminTrainingSnapshot)
+            .where(GarminSourceRecord.id.in_(select(GarminTrainingSnapshot.record_id)))
             .where(GarminSourceRecord.garmin_source_id == garmin_source_id)
             .where(GarminSourceRecord.projection_status == "current")
             .order_by(*ordering)
@@ -539,22 +541,50 @@ def read_training_evidence(
             .where(GarminSourceRecord.stream_code == GarminStream.ACTIVITY.value)
             .where(GarminRecordMetric.metric_code.in_(_ACTIVITY_FIELDS))
             .where(GarminRecordMetric.state.in_(("value", "invalid", "null")))
+            .where(GarminSourceRecord.id.in_(select(GarminRecordMetric.record_id).where(
+                GarminRecordMetric.metric_code.in_(_ACTIVITY_FIELDS),
+                GarminRecordMetric.state.in_(("value", "invalid", "null"))),
+            ))
             .distinct()
             .order_by(*ordering)
             .limit(limit)
         )
     )
     rows = training_rows + activity_rows
+    # Each original selection/limit above remains independent. Only load their
+    # ancillary evidence together; do not move the final combined limit earlier.
+    markers, metrics_by_record, dates_by_record = {}, defaultdict(list), defaultdict(list)
+    ids = sorted({row.id for row in rows})
+    for offset in range(0, len(ids), 400):
+        chunk = ids[offset:offset + 400]
+        for marker in session.scalars(select(GarminTrainingSnapshot).where(
+            GarminTrainingSnapshot.record_id.in_(chunk),
+        )):
+            markers[marker.record_id] = marker
+        for metric in session.execute(select(
+            GarminRecordMetric.record_id, GarminRecordMetric.metric_code,
+            GarminRecordMetric.state, GarminRecordMetric.value_number,
+            GarminRecordMetric.value_text, GarminRecordMetric.reason,
+        ).where(GarminRecordMetric.record_id.in_(chunk))):
+            metrics_by_record[metric.record_id].append(metric)
+        training_ids = [rid for rid in chunk if rid in markers]
+        if training_ids:
+            for record_id, day in session.execute(select(
+                GarminTrainingObservationRecord.record_id,
+                GarminTrainingAcquisition.requested_date,
+            ).join(
+                GarminTrainingObservationRecord,
+                GarminTrainingObservationRecord.observation_id
+                == GarminTrainingAcquisition.observation_id,
+            ).where(GarminTrainingObservationRecord.record_id.in_(training_ids))
+              .distinct().order_by(GarminTrainingAcquisition.requested_date)):
+                dates_by_record[record_id].append(day)
     result: list[dict[str, Any]] = []
     for row in rows:
-        marker = session.get(GarminTrainingSnapshot, row.id)
+        marker = markers.get(row.id)
         if marker is None and row.stream_code != GarminStream.ACTIVITY.value:
             continue
-        metrics = list(
-            session.scalars(
-                select(GarminRecordMetric).where(GarminRecordMetric.record_id == row.id)
-            )
-        )
+        metrics = metrics_by_record[row.id]
         if marker is None:
             metrics = [metric for metric in metrics if metric.metric_code in _ACTIVITY_FIELDS]
             kind = "activity"
@@ -574,23 +604,7 @@ def read_training_evidence(
             attribution = marker.attribution
             device_id = marker.provider_device_id
             device_key = marker.provider_device_key
-        acquisitions = (
-            list(
-                session.scalars(
-                    select(GarminTrainingAcquisition.requested_date)
-                    .join(
-                        GarminTrainingObservationRecord,
-                        GarminTrainingObservationRecord.observation_id
-                        == GarminTrainingAcquisition.observation_id,
-                    )
-                    .where(GarminTrainingObservationRecord.record_id == row.id)
-                    .distinct()
-                    .order_by(GarminTrainingAcquisition.requested_date)
-                )
-            )
-            if marker is not None
-            else []
-        )
+        acquisitions = dates_by_record[row.id] if marker is not None else []
         result.append(
             {
                 "contract_version": TRAINING_CONTRACT_VERSION,

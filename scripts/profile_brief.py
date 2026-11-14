@@ -223,15 +223,28 @@ def main():
     parser.add_argument("--cprofile", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--generate-synthetic", action="store_true")
+    parser.add_argument("--owner-shape", action="store_true",
+                        help="generate the dense synthetic owner-shaped fixture")
+    parser.add_argument("--scale", type=float, default=1)
+    parser.add_argument("--repeats", type=int, default=20)
     args = parser.parse_args()
     try:
         validate_output(args.data_dir, args.output)
         validate_output(args.data_dir, args.cprofile)
         if args.generate_synthetic:
-            generate_synthetic(args.data_dir)
+            if args.owner_shape:
+                # Support both the documented file invocation and python -m.
+                sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+                from scripts.brief_owner_shape import generate_owner_shape
+
+                manifest = generate_owner_shape(args.data_dir, scale=args.scale)
+                args.source = args.source or manifest["garmin_source_id"]
+                args.end_date = args.end_date or date.fromisoformat(manifest["anchor"])
+            else:
+                generate_synthetic(args.data_dir)
         result = profile(args.data_dir, period=args.period, source=args.source,
                          google_source=args.google_source, end=args.end_date,
-                         cprofile=args.cprofile)
+                         cprofile=args.cprofile, repeats=args.repeats)
         rendered = json.dumps(result, indent=2)
         if args.output:
             args.output.write_text(rendered + "\n", encoding="utf-8")

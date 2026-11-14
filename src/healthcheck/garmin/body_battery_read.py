@@ -90,6 +90,14 @@ def _read_period(session, query, result):
     scope = (
         record.garmin_source_id == source.id, record.projection_status == "current",
         or_(record.surface_code == "body_battery", metric.id.is_not(None)),
+        # Materialize the two exact candidate sets through their existing
+        # indexes. The outer OR alone walks every intraday sample of a source,
+        # even for the unknown-date probe. Keep aliases and metric-less surface
+        # records: both must still reach the unchanged eligibility checks.
+        record.id.in_(select(record.id).where(
+            record.garmin_source_id == source.id, record.surface_code == "body_battery",
+        ).correlate(None).union(select(metric.record_id).where(
+            metric.metric_code == "body_battery").correlate(None))),
     )
     statement = select(record, metric).outerjoin(metric, and_(
         metric.record_id == record.id, metric.metric_code == "body_battery",
