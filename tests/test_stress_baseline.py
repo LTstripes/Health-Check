@@ -324,7 +324,7 @@ def test_one_incompatible_participant_withholds_whole_frozen_sample(
     assert result["comparison"]["median"] is result["comparison"]["delta_points"] is None
 
 
-@pytest.mark.parametrize("version", ["v2", "v3", "v4"])
+@pytest.mark.parametrize("version", ["v2", "v3", "v4", "v5"])
 def test_stress_equivalent_version_mix_not_global_version_equality(database, version):
     saved, _history = seed(database, version="v1")
     acquire(database, D, 13, version=version, at=datetime(2099, 1, 31, tzinfo=UTC))

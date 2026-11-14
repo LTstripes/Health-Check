@@ -41,7 +41,7 @@ def test_exact_leaves_independent_values_and_no_device_claim(key, spec, value, s
         "dailyModerateIntensityMinutes": 700}, stream="daily_health",
         source_identity=garmin_source_identity())
     assert result.contract_version == NORMALIZATION_CONTRACT_VERSION
-    assert result.contract_version == "r02-garmin-normalization-contract-v4"
+    assert result.contract_version == "r02-garmin-normalization-contract-v5"
     metric = result.records[0].metric(code)
     assert metric.state.value == state
     assert metric.value == (value if state == "value" else None)

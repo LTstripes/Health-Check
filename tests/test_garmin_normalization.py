@@ -13,6 +13,8 @@ from healthcheck.garmin.capabilities import CapabilityStatus, get_capability
 from healthcheck.garmin.contracts import load_synthetic_fixture
 from healthcheck.garmin.normalization import (
     ACTIVITY_NORMALIZATION_CONTRACT_VERSION,
+    HRV_CALENDAR_CONTRACT_VERSION,
+    NORMALIZATION_CONTRACT_VERSION,
     SLEEP_TIMING_CONTRACT_VERSION,
     GarminFieldState,
     GarminParseStatus,
@@ -34,6 +36,95 @@ def fixture(name: str):
 
 def raw_fixture(name: str) -> dict:
     return json.loads((FIXTURE_ROOT / f"{name}.json").read_text(encoding="utf-8"))
+
+
+def legacy_daily_normalization(body, monkeypatch, **kwargs):
+    """Reproduce the pre-cleanup unconditional daily registry and frozen version."""
+    from healthcheck.garmin import normalization
+
+    original_specs = normalization._specs_for_stream
+    with monkeypatch.context() as old:
+        old.setattr(
+            normalization, "_specs_for_stream", lambda stream, raw=None: original_specs(stream),
+        )
+        result = normalize_garmin_payload(body, stream="daily_health", **kwargs)
+    return replace(result, contract_version=(
+        "r02-garmin-hrv-calendar-normalization-v3" if "hrvSummary" in body
+        else "r02-garmin-normalization-contract-v4"
+    ))
+
+
+@pytest.mark.parametrize("value", [None, 0, 31, "31"])
+def test_hrv_shape_omits_only_absent_energy_and_intensity(value, monkeypatch):
+    body = {"hrvSummary": {"calendarDate": "2099-01-02", "weeklyAvg": value}}
+    before = legacy_daily_normalization(body, monkeypatch)
+    after = normalize_garmin_payload(body, stream="daily_health")
+    old, new = before.records[0], after.records[0]
+    excluded = {"daily_energy", "intensity_minutes"}
+    assert len([m for m in old.metrics if m.capability_code in excluded]) == 6
+    assert all(m.state is GarminFieldState.MISSING
+               for m in old.metrics if m.capability_code in excluded)
+    assert new.metrics == tuple(m for m in old.metrics if m.capability_code not in excluded)
+    assert new.idempotency_key == old.idempotency_key
+    assert new.temporal == old.temporal
+    assert new.status is old.status
+    assert new.status is (GarminParseStatus.INVALID if value == "31" else GarminParseStatus.PARTIAL)
+    assert after.diagnostics == before.diagnostics
+    assert after.unknown_fields == before.unknown_fields
+    assert after.contract_version == HRV_CALENDAR_CONTRACT_VERSION
+    assert after.contract_version == "r02-garmin-hrv-calendar-normalization-v4"
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_summary_shape_omits_absent_hrv_without_changing_daily_metrics(complete, monkeypatch):
+    body = {
+        "calendarDate": "2099-01-02", "restingHeartRate": 52,
+        "totalKilocalories": 2000, "activeKilocalories": 0, "bmrKilocalories": None,
+        "moderateIntensityMinutes": 10, "vigorousIntensityMinutes": 0, "intensityMinutesGoal": 150,
+    }
+    if complete:
+        body.update(maxMetrics={"vo2MaxRunning": 44.2}, trainingReadiness=70,
+                    trainingStatus="productive")
+    before = legacy_daily_normalization(body, monkeypatch)
+    after = normalize_garmin_payload(body, stream="daily_health")
+    old, new = before.records[0], after.records[0]
+    assert old.metric("hrv_weekly_average_ms").state is GarminFieldState.MISSING
+    assert new.metric("hrv_weekly_average_ms") is None
+    assert new.metrics == tuple(m for m in old.metrics if m.capability_code != "hrv_status")
+    assert new.idempotency_key == old.idempotency_key
+    assert new.temporal == old.temporal
+    assert old.status is GarminParseStatus.PARTIAL
+    assert new.status is (GarminParseStatus.OK if complete else GarminParseStatus.PARTIAL)
+    assert after.diagnostics == before.diagnostics
+    assert after.unknown_fields == before.unknown_fields
+    assert after.contract_version == NORMALIZATION_CONTRACT_VERSION
+    assert after.contract_version == "r02-garmin-normalization-contract-v5"
+
+
+@pytest.mark.parametrize("leaf", [
+    "totalKilocalories", "activeKilocalories", "bmrKilocalories",
+    "moderateIntensityMinutes", "vigorousIntensityMinutes", "intensityMinutesGoal",
+])
+@pytest.mark.parametrize("value", [0, 12.5, None, True, "bad", -1])
+def test_mixed_hrv_payload_preserves_every_explicit_daily_field(leaf, value, monkeypatch):
+    body = {"hrvSummary": {"calendarDate": "2099-01-02", "weeklyAvg": 31}, leaf: value}
+    old = legacy_daily_normalization(body, monkeypatch).records[0]
+    new = normalize_garmin_payload(body, stream="daily_health").records[0]
+    assert new.metrics == tuple(m for m in old.metrics if not (
+        m.capability_code in {"daily_energy", "intensity_minutes"}
+        and m.state is GarminFieldState.MISSING
+    ))
+    assert new.idempotency_key == old.idempotency_key
+    assert new.status is old.status
+    assert new.diagnostics == old.diagnostics
+
+
+@pytest.mark.parametrize("value", [0, 31, None, True, "bad"])
+def test_legacy_hrv_alias_in_summary_keeps_value_state_and_provenance(value, monkeypatch):
+    body = {"calendarDate": "2099-01-02", "hrvStatus": {"weeklyAverage": value}}
+    old = legacy_daily_normalization(body, monkeypatch).records[0]
+    new = normalize_garmin_payload(body, stream="daily_health").records[0]
+    assert new == old
 
 
 @pytest.mark.parametrize(

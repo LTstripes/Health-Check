@@ -46,11 +46,11 @@ from healthcheck.garmin.contracts import (
     is_forbidden_payload_key,
 )
 
-NORMALIZATION_CONTRACT_VERSION = "r02-garmin-normalization-contract-v4"
+NORMALIZATION_CONTRACT_VERSION = "r02-garmin-normalization-contract-v5"
 ACTIVITY_QUALITY_CONTRACT_VERSION = "garmin-activity-quality-v1"
 ACTIVITY_NORMALIZATION_CONTRACT_VERSION = "garmin-activity-normalization-v2"
 SLEEP_TIMING_CONTRACT_VERSION = "r02-garmin-sleep-normalization-v4"
-HRV_CALENDAR_CONTRACT_VERSION = "r02-garmin-hrv-calendar-normalization-v3"
+HRV_CALENDAR_CONTRACT_VERSION = "r02-garmin-hrv-calendar-normalization-v4"
 GARMIN_NORMALIZATION_CONTRACT_VERSION = NORMALIZATION_CONTRACT_VERSION
 SYNTHETIC_SOURCE_KIND = "synthetic"
 PROVIDER_SOURCE_KIND = "provider"
@@ -1737,7 +1737,7 @@ def _parse_record(
     if temporal.precision is GarminTemporalPrecision.UNKNOWN:
         diagnostics.append(_diag("missing_time", source_path, "warning"))
 
-    specs = _specs_for_stream(stream)
+    specs = _specs_for_stream(stream, raw)
     metrics: list[GarminMetricDTO] = []
     for spec in specs:
         metric, metric_diagnostics = _parse_scalar(raw, spec, source_path)
@@ -1872,11 +1872,25 @@ def _parse_record(
     return record, unknown_fields, diagnostics
 
 
-def _specs_for_stream(stream: GarminStream) -> tuple[_ScalarSpec, ...]:
+def _specs_for_stream(
+    stream: GarminStream, raw: Mapping[str, Any] | None = None,
+) -> tuple[_ScalarSpec, ...]:
     if stream is GarminStream.SLEEP:
         return _SLEEP_SCALARS
     if stream is GarminStream.DAILY_HEALTH:
-        return _DAILY_SCALARS
+        if raw is None:
+            # The complete registry still defines known roots for diagnostics.
+            return _DAILY_SCALARS
+        inapplicable = (
+            {"daily_energy", "intensity_minutes"} if "hrvSummary" in raw else {"hrv_status"}
+        )
+        # Omit only absent cross-shape placeholders. Explicit leaves in mixed
+        # payloads retain their values/nulls/invalid states and provenance.
+        return tuple(
+            spec for spec in _DAILY_SCALARS
+            if spec.capability_code not in inapplicable
+            or _first_present(raw, spec.paths)[1] is not _MISSING
+        )
     if stream is GarminStream.ACTIVITY:
         return _ACTIVITY_SCALARS
     if stream is GarminStream.ORIGINAL_FIT:

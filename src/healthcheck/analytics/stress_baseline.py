@@ -75,11 +75,13 @@ _TIMEZONE_FIELDS = ("timeZone", "timezone", "timeZoneId", "timezoneId", "zone", 
 # _scalar_capability_status delegates to the unchanged helper for stress.
 # General v3 adds optional daily energy fields; intraday stress/time/coverage
 # mappings and their evidence requirements are unchanged.
+# General v5 removes absent daily-health cross-shape metrics only.
 _NORMALIZATION_VERSIONS = {
     "r02-garmin-normalization-contract-v1",
     "r02-garmin-normalization-contract-v2",
     "r02-garmin-normalization-contract-v3",
     "r02-garmin-normalization-contract-v4",
+    "r02-garmin-normalization-contract-v5",
 }
 _INPUT_RULES = {"r03-garmin-analytic-rules-v1", "r03-garmin-analytic-rules-v2"}
 _RECONCILIATION_VERSION = "r02-garmin-collection-reconciliation-v1"
