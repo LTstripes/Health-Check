@@ -27,6 +27,38 @@ The candidate directory is `releases_root/stable-code-<sha8>`. Keep the versione
 tooling location available: the new pointer's `ui_start_script` references its
 `StartStable.ps1`. No per-release PowerShell or Python generator is needed.
 
+Optionally set `autostart_dry_run_script` to the absolute path of the installed
+local logon wrapper. Remove this example key to skip the check; both preparation
+and successful activation record `SKIP` when it is absent. `powershell_executable`
+selects the PowerShell executable (default: `powershell.exe` on Windows, `pwsh`
+elsewhere). The wrapper must accept `-OpsRoot`, `-DryRun` and the integer array
+`-DryRunOccupiedPorts 8120,8787`, and honor dry-run without starting services or
+writing files. Execution policy is enforced; no policy override is supplied.
+
+For this check, `active_pointer` must be at
+`<OpsRoot>/maintenance/active-code.private.json`. Before publishing the manifest,
+preparation creates a temporary OpsRoot containing the proposed pointer and the
+configured weekly recipe at its relative Ops path. Legacy recipes use the proposed
+rewritten text; pointer-reading recipes use their current text. Binding and code
+references retain their actual, already validated paths. The temporary tree is
+removed after success, failure or timeout; the live pointer and consumers stay
+untouched. Nonzero exit, `FAIL` in either output stream, launch failure, timeout or
+the wrapper's busy-mutex skip refuses preparation with `autostart_dry_run_failed`.
+`preflight.json` beside the requested manifest records the result and captured
+stdout/stderr even when no manifest is published. The successful manifest also
+includes the result, and pins the wrapper's hash for activation preflight. Use a
+fresh candidate directory after a refusal.
+
+After successful activation releases its locks, the same dry-run checks the live
+OpsRoot. A failure records `WARN` with `autostart_dry_run_failed` and captured
+output in `activation.json` and prints a warning; deployment remains `PASS` and
+this check does not trigger rollback. Releasing the shared autostart mutex first
+lets the wrapper validate rather than skip. `PASS` establishes the wrapper's
+pointer/binding checks with both service ports treated as occupied; it does not
+prove a future reboot, Scheduler execution or service launch. Inspect warnings
+before relying on the next logon. Dry-run output is private receipt material;
+the environment gateway token is redacted from both streams.
+
 `ci_receipt` is a local, operator-supplied normalization of inspected exact-candidate
 CI results, not a tool-issued attestation. Do not synthesize green status without
 inspecting the run. All four jobs must belong to that SHA and run attempt:
@@ -147,8 +179,9 @@ their specific refusal codes.
 Smoke checks verify UI `/healthz` (new SHA and run ID), one configured page, actual
 MCP process/binding plus authenticated MCP initialize, and the database revision.
 The gateway token comes exclusively from `HEALTHCHECK_MCP_GATEWAY_TOKEN`. HTTP
-bodies, authorization headers and subprocess output are never written to receipts
-or logs. MCP smoke records only stage status and elapsed seconds. Launches are
+bodies, authorization headers and other subprocess output are never written to receipts
+or logs. Only the optional autostart dry-run captures output as described above.
+MCP smoke records only stage status and elapsed seconds. Launches are
 hidden on Windows with stdout/stderr discarded. No credential is a config field.
 
 `activation-started.json` prevents automatic retries after a crash; `activation.json`

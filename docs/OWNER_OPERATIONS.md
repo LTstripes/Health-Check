@@ -371,6 +371,15 @@ remain required. Default legacy consumers are rewritten; entries explicitly mark
 `mode: "pointer-reading"` are neither read/snapshotted nor rewritten/restored.
 The active-pointer entry cannot be skipped. Task Scheduler is not changed by the CLI.
 
+Optionally configure `autostart_dry_run_script` and `powershell_executable` to check
+the installed logon wrapper without bypassing execution policy. Preparation checks
+a temporary OpsRoot with the proposed pointer and weekly recipe, with both 8120 and
+8787 marked occupied; failure refuses preparation and captures output in
+`preflight.json`. After activation releases its locks, the live-pointer check is
+recorded in `activation.json`; failure is a warning and does not undo activation.
+An absent script setting is recorded as skipped. This checks wrapper compatibility,
+not an actual reboot or service launch; see the tool guide for layout and limits.
+
 **Code-only** requires unchanged migrations/models and matching schema, plus an
 accessible already verified regular recovery point for the same profile **no
 older than 8 days** (Owner decision, 10 November 2026). It does not create a fresh

@@ -3,6 +3,8 @@
   "releases_root": "C:\\REPLACE\\releases",
   "profile": "C:\\REPLACE\\profile",
   "active_pointer": "C:\\REPLACE\\ops\\maintenance\\active-code.private.json",
+  "autostart_dry_run_script": "C:\\REPLACE\\ops\\autostart\\Start-HealthCheckAtLogon.ps1",
+  "powershell_executable": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
   "ci_receipt": "C:\\REPLACE\\candidate\\ci.json",
   "recovery_receipt": "C:\\REPLACE\\weekly\\verified-recovery.json",
   "rehearsal_receipt": "C:\\REPLACE\\candidate\\migration-rehearsal.json",
